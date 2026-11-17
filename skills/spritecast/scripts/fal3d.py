@@ -73,6 +73,25 @@ def run(endpoint, body, keep, again):
     return _call(res_url)
 
 
+# --- a prop's detailed model (isoprop.py model) -----------------------------------------------------------------------------------------
+def text_model(spec, d, args, size, prompt):
+    """Tripo H3.1 text-to-3d on fal → <name>/fal.glb; the spec file gets "model" and its blocks become "blocks_draft", as the Tripo branch does"""
+    W, D, H = size; out = Path(d) / 'fal.glb'
+    if out.exists() and not args.again: return print(f'model: {out} is there already (--again to make it anew)')
+    if not gate(args, f'model: fal Tripo H3.1 text-to-3d, ${PRICE["text"]:.2f}; made {H:.2f} m tall in its own proportions (the blocks: {W} x {D} m)'): return
+    t0 = time.time()
+    r = run('tripo3d/h3.1/text-to-3d', {'prompt': prompt, 'texture': True, 'texture_quality': 'standard', 'face_limit': 80000},
+            Path(d) / 'fal-request.txt', args.again)
+    url = (r.get('model_mesh') or {}).get('url') or ((r.get('model_urls') or {}).get('glb') or {}).get('url')
+    if not url: sys.exit(f'model: fal sent no model back ({", ".join(r)})')
+    fetch(url, out)
+    raw = json.loads(Path(args.spec).read_text(encoding='utf-8'))
+    raw['model'] = {'glb': f"{spec['name']}/fal.glb", 'size': [W, D, round(H, 3)], 'yaw': 0}
+    if 'blocks' in raw: raw['blocks_draft'] = raw.pop('blocks')
+    Path(args.spec).write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding='utf-8')
+    print(f'model: {out}  ({time.time() - t0:.0f} s, ${PRICE["text"]:.2f}) - the spec now uses it; run `yaws` to turn it the right way')
+
+
 # --- the rig's clips: Meshy gives one complete GLB per clip; they become one rig.glb -----------------------------------------------------
 REQUIRED_BONES = ('Hips', 'LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftHand', 'RightHand')
 SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
@@ -269,4 +288,23 @@ if __name__ == '__main__':                                             # self-ch
     assert gait_cycles(out, 'walk') == 2
     one = _glb(tmp / 'one.glb', BONES, 'walk', T, {'LeftUpLeg': swing(1)})
     assert gait_cycles(one, 'walk') == 1
+
+    # --- text_model: a prop's model, and the spec file pointed at it ------------------------------------------------------------------------
+    from types import SimpleNamespace as NS
+    sent = {}
+    def fake_run(endpoint, body, keep, again): sent.update(endpoint=endpoint, body=body, keep=keep); return {'model_mesh': {'url': 'https://f/m.glb'}}
+    def fake_fetch(url, path): Path(path).parent.mkdir(parents=True, exist_ok=True); Path(path).write_bytes(b'glb'); return Path(path)
+    blocks = [{'shape': 'box', 'at': [0, 0, 0], 'size': [0.4, 0.4, 1.2]}]
+    sp = tmp / 'lamp.json'; sp.write_text(json.dumps({'name': 'lamp', 'footprint': [0.4, 0.4], 'blocks': blocks}))
+    with mock.patch(__name__ + '.run', fake_run), mock.patch(__name__ + '.fetch', fake_fetch):
+        before = sp.read_text()
+        text_model({'name': 'lamp'}, tmp / 'lamp', NS(yes=False, again=False, spec=str(sp)), (0.4, 0.4, 1.2), 'a lamp')
+        assert not sent and sp.read_text() == before
+        text_model({'name': 'lamp'}, tmp / 'lamp', NS(yes=True, again=False, spec=str(sp)), (0.4, 0.4, 1.2), 'a lamp')
+    raw = json.loads(sp.read_text())
+    assert raw['model'] == {'glb': 'lamp/fal.glb', 'size': [0.4, 0.4, 1.2], 'yaw': 0} and 'blocks' not in raw and raw['blocks_draft'] == blocks, raw
+    assert sent['endpoint'] == 'tripo3d/h3.1/text-to-3d' and sent['keep'] == tmp / 'lamp/fal-request.txt'
+    assert {k: sent['body'][k] for k in ('prompt', 'texture', 'texture_quality', 'face_limit')} == \
+        {'prompt': 'a lamp', 'texture': True, 'texture_quality': 'standard', 'face_limit': 80000}
+    assert (tmp / 'lamp/fal.glb').read_bytes() == b'glb'
     print('fal3d: ok')

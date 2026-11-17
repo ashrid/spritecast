@@ -5,7 +5,7 @@ image model redrawing it in your art style, then cut out, fitted back onto the g
     python isoprop.py draw    SPEC.json [--yes]    PAID: one image-model call → drawn.png (prints the cost; --yes to spend it)
     python isoprop.py finish  SPEC.json            sprite.png, shadow.png, sprite.json (anchor, footprint, scale, shadow offset)
     python isoprop.py preview SPEC.json            preview.png: the sprite and its shadow on a tiled floor
-    python isoprop.py model   SPEC.json [--yes]    PAID (Tripo): a detailed 3D model from the description, put in the spec in place of the
+    python isoprop.py model   SPEC.json [--yes]    PAID (Tripo, or fal with SPRITECAST_3D=fal / only FAL_KEY): a detailed 3D model from the description, put in the spec in place of the
                                                    blocks (kept as blocks_draft) at the same real size → then `yaws`, `render` as usual
     python isoprop.py yaws    SPEC.json            free: the model turned 0/90/180/270° side by side (yaws.png), to set model.yaw
     python isoprop.py try     [EXAMPLE] [--out DIR]  free, no key: a bundled example's guide rendered here and finished → preview.png
@@ -16,7 +16,7 @@ Environment: OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY (draw only; SPRITECAS
 """
 import argparse, base64, json, math, os, sys, time, urllib.error, urllib.request
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent)); import browser as BROWSER, imagegen as IG  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent)); import browser as BROWSER, imagegen as IG, fal3d  # noqa: E402
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
@@ -336,6 +336,8 @@ def make_model(spec, d, args):
     if spec.get('character') is not None or not blocks: sys.exit('model: needs a prop spec with blocks (they give its real size)')
     H = max(block_top(x) for x in blocks)
     W, D = spec['footprint']
+    if fal3d.provider3d() == 'fal':
+        return fal3d.text_model(spec, d, args, (W, D, H), (spec['description'] + '. A single object standing on its own: no base, no floor, no background, real-world proportions.')[:1024])
     print(f'model: Tripo text-to-model {TRIPO_MODEL}, about 20-40 Tripo credits; made {H:.2f} m tall in its own proportions (the blocks: {W} x {D} m)')
     if not args.yes: return print('model: not spent - run again with --yes')
     key = os.environ.get('TRIPO_API_KEY')

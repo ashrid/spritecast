@@ -51,7 +51,7 @@ Scripts: `${CLAUDE_SKILL_DIR}/scripts/isoprop.py` (steps `render`, `draw`, `fini
    in their engine: put the sprite so its anchor sits on the footprint's front corner; draw the shadow under all sprites.
 
 ## More detail with a 3D model (Tripo)
-When the user wants more detail than blocks give (curves, carving, tapered legs) and has `TRIPO_API_KEY`: after the block guide is
+When the user wants more detail than blocks give (curves, carving, tapered legs) and has `TRIPO_API_KEY` or `FAL_KEY` (fal.ai: `SPRITECAST_3D` picks when both are set): after the block guide is
 right, `model <spec>` (prints the cost; ~20 Tripo credits, ~2 min; ask first, then `--yes`) makes a Tripo model from the description
 and puts it in the spec at the blocks' HEIGHT, in its own proportions - the shape is the model's, never pressed into the blocks' box (blocks → `blocks_draft`). Then `yaws <spec>` (free): look at yaws.png and set
 `model.yaw` to the turn whose front faces where the blocks' did. Then render, show, draw as usual. Blocks alone are fine when the
