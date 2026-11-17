@@ -448,7 +448,7 @@ def flip_onto(im, ren):
     figure, not about the picture's middle: flipped where it stood, a frame came out ~18 px off its render - 0.42-0.76 overlap where it
     fits at 0.83-0.90)"""
     a = np.asarray(im.convert('RGBA').transpose(Image.FLIP_LEFT_RIGHT)); r = np.asarray(Image.open(ren).convert('RGBA'))[..., 3] > 128; m = a[..., 3] > 127
-    r = round(60 * PX); dx = max(range(-r, r + 1), key=lambda s: (np.roll(m, s, 1) & r).sum() / max(1, (np.roll(m, s, 1) | r).sum()))
+    w = round(60 * PX); dx = max(range(-w, w + 1), key=lambda s: (np.roll(m, s, 1) & r).sum() / max(1, (np.roll(m, s, 1) | r).sum()))
     out = np.zeros_like(a)
     if dx >= 0: out[:, dx:] = a[:, :a.shape[1] - dx]
     else: out[:, :dx] = a[:, -dx:]
