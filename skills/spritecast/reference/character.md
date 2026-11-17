@@ -8,8 +8,8 @@ Three OKs: `turnaround`, `3d` (= `model` + `rig` + `render`), `draw` (then `fini
 | step | what | cost |
 |---|---|---|
 | `turnaround` | front / right / back drawn from the illustration (A-pose, hair behind the shoulders); the left view mirrored from the right | ~$0.09 OpenAI |
-| `model` | Tripo multiview-to-model from the four views (turned to face front for the rig); or Meshy multi-image-to-3D with `"modeler": "meshy"` | ~30 Tripo credits (+10 if it comes back uncoloured; or ~30 Meshy) |
-| `rig` | Tripo: rig check, rig (mixamo bones), walk + idle retargeted in place; bone names fixed, the walk's hips put back, feet planted as modelled | ~45 Tripo credits |
+| `model` | Tripo multiview-to-model from the four views (turned to face front for the rig); or Meshy multi-image-to-3D with `"modeler": "meshy"`; with `SPRITECAST_3D=fal` (or only `FAL_KEY`), Meshy v6 on fal | ~30 Tripo credits (+10 if it comes back uncoloured; or ~30 Meshy) |
+| `rig` | Tripo: rig check, rig (mixamo bones), walk + idle retargeted in place; bone names fixed, the walk's hips put back, feet planted as modelled. On fal: Meshy's rig (mixamo skeleton) with idle and the actions as Meshy library clips, merged into one rig.glb, turned by the hips (not the toes) | ~45 Tripo credits; fal $0.20 + $0.12 a clip |
 | `render` | the walk (8 frames × 8 facings) and the idle (8 facings), the head raised `head_up`° (a rig's walk looks down); each with its 3D shadow (`-s.png`) | free |
 | `draw` | 4 frames a call on one sheet; the front first, every other sheet given it; a walk's second sheet given its first; every facing drawn (`"mirror": true` flips the west side from the east) | ~$0.10 a sheet, 18 sheets ≈ $2 (12 ≈ $1.3 with `"mirror": true`) |
 | `finish` | each frame cut out (its cell cut wider), fitted onto its render (one upper-body size per sheet, the legs to the render's feet), heads steadied within a facing and sized to the 3D model's in every facing, `head_fit` applied, edges cleaned; strips and a shadow per frame | free |
@@ -57,7 +57,7 @@ Three OKs: `turnaround`, `3d` (= `model` + `rig` + `render`), `draw` (then `fini
 | `shoulder_wide` | how far out the collar and arm bones are set (1.05; 1.1 for a man); small on its own |
 | `pitch` | camera degrees down (30 = 2:1 isometric) |
 | `frames` | walk frames (8) |
-| `walk` / `idle` | clip names and times: `{"clip": "walk", "t0": 0, "t1": 1.1835}` (one stride of Tripo's walk), `{"clip": "idle", "t": 0}` |
+| `walk` / `idle` | clip names and times: `{"clip": "walk", "t0": 0, "t1": 1.1835}` (one stride of Tripo's walk; on fal `rig` writes Meshy's stride, 1.033, into the spec), `{"clip": "idle", "t": 0}` |
 | `neck` | where the neck is, as a share of the figure's height from the top (0.16), for steadying the heads |
 | `frame_px` | output frame height (256); `pack --px N` makes another set at N px in `out-Npx/` |
 | `render_px` | the renders' and finished frames' size (1024; a project rendered at 512 before keeps that until you set it) |

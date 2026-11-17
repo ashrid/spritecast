@@ -55,13 +55,15 @@ def _call(url, body=None):
             sys.exit(f'fal {url.split(QUEUE)[-1]}: HTTP {e.code} {msg}')
 
 
-def run(endpoint, body, keep, again):
-    """one fal queue job; its id is kept in `keep` before waiting, so a run cut off picks the paid-for result up instead of buying it again"""
-    keep = Path(keep); rid = keep.read_text().strip() if keep.exists() and not again else ''
+def run(endpoint, body, keep, again, tag=''):
+    """one fal queue job; its id is kept in `keep` before waiting, so a run cut off picks the paid-for result up instead of buying it again.
+    tag: what the job was made from (the rig: its model) - a kept id is taken only under the same tag"""
+    keep = Path(keep); parts = keep.read_text().split() if keep.exists() and not again else []
+    rid = parts[-1] if parts and parts[:-1] == ([tag] if tag else []) else ''
     app = '/'.join(endpoint.split('/')[:2])                             # a sub-path model's requests live under its app id (fal-ai/meshy)
     st_url = res_url = None
     if not rid:
-        r = _call(QUEUE + endpoint, body); rid = r['request_id']; keep.parent.mkdir(parents=True, exist_ok=True); keep.write_text(rid)
+        r = _call(QUEUE + endpoint, body); rid = r['request_id']; keep.parent.mkdir(parents=True, exist_ok=True); keep.write_text(f'{tag} {rid}'.strip())
         st_url, res_url = r.get('status_url'), r.get('response_url')
     st_url = st_url or f'{QUEUE}{app}/requests/{rid}/status'; res_url = res_url or f'{QUEUE}{app}/requests/{rid}'; t0 = time.time()
     while True:
@@ -192,6 +194,87 @@ def gait_cycles(glb, clip):
     lag = neg + int(np.argmax(ac[neg:]))
     if ac[lag] < 0.3 or lag >= len(x) - 1: return 1
     return max(1, round((t[-1] - t[0]) / (lag * (t[-1] - t[0]) / (len(t) - 1))))
+
+
+def facing(glb):
+    """degrees to turn the model about +Y so it faces +z (CL.facing's sign), from the hip axis: left thigh minus right thigh, crossed with up.
+    Not CL.facing's toes: Meshy's rig places the toe bones unevenly (24° and -69° on a rig that faces +z), which reads as -72°"""
+    import math, numpy as np
+    import charlib as CL
+    js, _ = CL.read_glb(glb); nodes = js['nodes']; parent = {c: i for i, n in enumerate(nodes) for c in n.get('children', [])}
+    def local(n):
+        x, y, z, w = n.get('rotation', [0, 0, 0, 1]); m = np.eye(4)
+        m[:3, :3] = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)], [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                              [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]) * n.get('scale', [1, 1, 1])
+        m[:3, 3] = n.get('translation', [0, 0, 0]); return m
+    def world(i):
+        m = local(nodes[i])
+        while i in parent: i = parent[i]; m = local(nodes[i]) @ m
+        return m[:3, 3]
+    at = {key(n.get('name')): i for i, n in enumerate(nodes)}
+    f = np.cross(world(at['LeftUpLeg']) - world(at['RightUpLeg']), [0, 1, 0])
+    return -math.degrees(math.atan2(f[0], f[2]))
+
+
+def plan_clips(s):
+    """[(name, Meshy id)] to ask for - idle first, then each action with an id, nine in all (fal's limit is ten) - and the actions left out"""
+    picked, skipped = [('idle', 0)], []
+    for n, a in (s.get('actions') or {}).items():
+        c = a.get('clip'); i = a.get('meshy_id', c if isinstance(c, int) else ACTIONS.get(c, ACTIONS.get(n)))
+        if i is not None and len(picked) < 9: picked.append((n, i))
+        else: skipped.append(n)
+    return picked, skipped
+
+
+def rig(s, d, args):
+    """Meshy rigging on fal (Mixamo skeleton): the walk (it comes with the rig), idle and the actions, merged into rig/rig.glb and made
+    renderable the way charpipe makes Tripo's (facing, bone names and hips, feet planted); the walk's real stride written to the spec.
+    Called after charpipe.rig's own checks (not an animal, no rig yet or --again, a model there). True when rig.glb was made."""
+    import hashlib
+    import charlib as CL
+    d = Path(d); out = d / 'rig/rig.glb'; model = d / 'model/model.glb'
+    picked, skipped = plan_clips(s)
+    if skipped: print(f'rig: no Meshy clip for {", ".join(skipped)} (or more than eight actions) - left out; give a Meshy id as "clip", or your own rig ("rig_glb")')
+    cost = PRICE['rig'] + len(picked) * PRICE['clip']
+    if not gate(args, f'rig: fal Meshy rig ${PRICE["rig"]:.2f} + {len(picked)} clips × ${PRICE["clip"]:.2f} = ${cost:.2f} (the walk comes with it), a few minutes'): return False
+    tag = hashlib.sha1(model.read_bytes()).hexdigest()[:12]              # the rig kept for a cut-off run belongs to THIS model
+    hosted = (d / 'model/fal-model-url.txt').read_text().split() if (d / 'model/fal-model-url.txt').exists() else []
+    url = hosted[-1] if hosted else data_uri(model, 'model/gltf-binary')
+    t0 = time.time()
+    r = run('fal-ai/meshy/rigging/multi-animation', {'model_url': url, 'skeleton_template': 'mixamo', 'height_meters': float(s.get('height_m', 1.7)),
+                                                    'animation_action_ids': [i for _, i in picked]}, d / 'rig/fal-request.txt', args.again, tag=tag)
+    walk = ((r.get('basic_animations') or {}).get('walking_glb') or {}).get('url'); clips = r.get('animations') or []
+    if not walk or len(clips) != len(picked): sys.exit(f'rig: fal sent {len(clips)} clips for {len(picked)} asked, walk {"yes" if walk else "no"} ({", ".join(r)})')
+    base = fetch(walk, d / 'rig/fal-walk.glb')
+    parts = [(n, fetch(c['animation_glb']['url'], d / f'rig/fal-{n}.glb')) for (n, _), c in zip(picked, clips)]
+    m = d / 'rig/merged.glb'; merge(base, parts, m)
+    turn = round(facing(m) / 90) * 90 % 360
+    if turn: CL.turn_root(m, m, turn)
+    durs = CL.fix_tripo(m, d / 'rig/named.glb'); feet = CL.plant_feet(d / 'rig/named.glb', out)
+    validate(out, ['walk'] + [n for n, _ in picked])
+    t1 = durs['walk'] / gait_cycles(out, 'walk')
+    write_spec(args.spec, s, t1, picked)
+    print(f'rig: {out}  clips {durs}  turned {turn}°  feet corrected {feet}  walk stride {t1:.3f} s  ({time.time() - t0:.0f} s, ${cost:.2f})')
+    return True
+
+
+def write_spec(path, s, walk_t1, picked):
+    """the rig's real times into the spec FILE (every step loads it anew) and into `s` (make3d renders with it straight after):
+    the walk's one stride, unless the user set their own; each rigged action played whole (Tripo's tuned windows, e.g. slash 0.6-2.7 s, would
+    cut Meshy's clips wrong), unless the user set its times; an action given as a Meshy id gets the clip name it has in the rig"""
+    raw = json.loads(Path(path).read_text(encoding='utf-8')); w = raw.get('walk') or {}
+    if w.get('t1') in (None, 1.1835):                                   # (1.1835 s: one stride of Tripo's walk, charpipe's default)
+        raw['walk'] = {'clip': w.get('clip', 'walk'), 't0': w.get('t0', 0), 't1': round(walk_t1, 4)}; s.setdefault('walk', {})['t1'] = round(walk_t1, 4)
+    rigged = {n: i for n, i in picked if n != 'idle'}; out = []
+    for e in raw.get('actions') or []:
+        n = e if isinstance(e, str) else e.get('name')
+        if n in rigged:
+            e = {'name': e} if isinstance(e, str) else dict(e); sa = s.get('actions', {}).get(n, {})
+            if 't0' not in e and 't1' not in e: e['t0'], e['t1'] = 0, None; sa.update(t0=0, t1=None)
+            if isinstance(e.get('clip'), int): e['meshy_id'], e['clip'] = e['clip'], n; sa.update(clip=n, meshy_id=e['meshy_id'])
+        out.append(e)
+    if 'actions' in raw: raw['actions'] = out
+    Path(path).write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
 def fetch(url, path):
@@ -348,4 +431,45 @@ if __name__ == '__main__':                                             # self-ch
         assert not (cd / 'rig/fal-request.txt').exists()                 # --again: the old rig belongs to the old model
         assert (cd / 'model/model.glb').exists()
         assert '$1.20' in exits(lambda: views_model({}, cd, NS(yes=True, again=True), cd / 'model/model.glb', lambda p: True))
+
+    # --- rig's pieces: the facing (hip axis), which clips, the spec written, a kept rig only for its own model ----------------------------
+    def hips_glb(path, left, right):
+        js = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}], 'buffers': [{'byteLength': 0}], 'bufferViews': [], 'accessors': [],
+              'nodes': [{'name': 'mixamorig:Hips', 'translation': [0, 1, 0], 'children': [1, 2]},
+                        {'name': 'mixamorig:LeftUpLeg', 'translation': left}, {'name': 'mixamorig:RightUpLeg', 'translation': right}]}
+        CL.write_glb(path, js, bytearray()); return path
+    assert abs(facing(hips_glb(tmp / 'f0.glb', [0.1, 0, 0], [-0.1, 0, 0]))) < 1e-6           # left thigh on +x: facing +z already
+    assert abs(abs(facing(hips_glb(tmp / 'f1.glb', [-0.1, 0, 0], [0.1, 0, 0]))) - 180) < 1e-6
+    assert abs(facing(hips_glb(tmp / 'f2.glb', [0, 0, -0.1], [0, 0, 0.1])) + 90) < 1e-6       # facing +x: turn -90, as CL.facing would say
+
+    acts = {n: {'clip': n} for n in ['slash', 'wave', 'run', 'jump', 'shoot', 'dive', 'climb', 'fall', 'hurt', 'turn']}
+    acts['cast'] = {'clip': 57}; acts['bow'] = {'clip': 'bow', 'meshy_id': 12}
+    picked, skipped = plan_clips({'actions': acts})
+    assert picked[:3] == [('idle', 0), ('slash', 219), ('run', 14)] and len(picked) == 9, picked
+    assert 'wave' in skipped and set(skipped) >= {'cast', 'bow'} - {n for n, _ in picked}, skipped
+    picked, skipped = plan_clips({'actions': {'cast': {'clip': 57}, 'bow': {'clip': 'bow', 'meshy_id': 12}}})
+    assert picked == [('idle', 0), ('cast', 57), ('bow', 12)] and not skipped
+
+    sp = tmp / 'a.json'; sp.write_text(json.dumps({'name': 'a', 'actions': ['slash', {'name': 'cast', 'clip': 57}, 'wave']}))
+    s = {'walk': {'clip': 'walk', 't0': 0, 't1': 1.1835}, 'actions': {'slash': {'clip': 'slash', 't0': 0.6, 't1': 2.7}, 'cast': {'clip': 57, 't0': 0, 't1': None},
+                                                                      'wave': {'clip': 'wave', 't0': 0, 't1': None}}}
+    write_spec(sp, s, 1.02, [('slash', 219), ('cast', 57)])
+    raw = json.loads(sp.read_text())
+    assert raw['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.02}
+    assert raw['actions'][0] == {'name': 'slash', 't0': 0, 't1': None} and raw['actions'][1] == {'name': 'cast', 'clip': 'cast', 'meshy_id': 57, 't0': 0, 't1': None}
+    assert raw['actions'][2] == 'wave'                                  # not rigged: left as the user wrote it
+    assert s['walk']['t1'] == 1.02 and s['actions']['slash']['t0'] == 0 and s['actions']['slash']['t1'] is None and s['actions']['cast']['clip'] == 'cast'
+    sp.write_text(json.dumps({'name': 'a', 'walk': {'clip': 'walk', 't0': 0, 't1': 0.9}, 'actions': [{'name': 'slash', 't0': 0.2, 't1': 1.0}]}))
+    write_spec(sp, {'walk': {'t1': 0.9}, 'actions': {'slash': {'clip': 'slash', 't0': 0.2, 't1': 1.0}}}, 1.02, [('slash', 219)])
+    raw = json.loads(sp.read_text())
+    assert raw['walk']['t1'] == 0.9 and raw['actions'][0] == {'name': 'slash', 't0': 0.2, 't1': 1.0}    # the user's own times stay
+
+    with mock.patch('time.sleep', lambda s: None):                     # a kept job is taken only under the same tag (the model it was made for)
+        keep = tmp / 'k5.txt'; keep.write_text('modelA r5')
+        uo, calls = fake([('POST', 'fal-ai/x/y', {'request_id': 'r6'}), ('GET', 'requests/r6/status', {'status': 'COMPLETED'}), ('GET', 'requests/r6', {'ok': 6})])
+        with mock.patch('urllib.request.urlopen', uo): assert run('fal-ai/x/y', {}, keep, False, tag='modelB') == {'ok': 6}
+        assert keep.read_text() == 'modelB r6'
+        uo, calls = fake([('GET', 'requests/r6/status', {'status': 'COMPLETED'}), ('GET', 'requests/r6', {'ok': 6})])
+        with mock.patch('urllib.request.urlopen', uo): assert run('fal-ai/x/y', {}, keep, False, tag='modelB') == {'ok': 6}
+        assert not any(m == 'POST' for m, _ in calls)
     print('fal3d: ok')

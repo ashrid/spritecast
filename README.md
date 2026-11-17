@@ -43,7 +43,8 @@ every frame is the same person, and she actually walks.
 | **A prop, or a posed NPC** | a description | a sprite, its shadow, its anchor | about $0.07 (+ $0.08 a further facing) |
 | **A pixel-art prop** | a description | pixel sprites from every side, at the pixel character's scale | about 20 Tripo credits + $0.08 a side |
 
-Free and MIT. You pay OpenAI and Tripo directly; every paid step shows its cost and waits for your OK.
+Free and MIT. You pay OpenAI and Tripo directly; every paid step shows its cost and waits for your OK. No Tripo account? fal.ai can do
+the 3D instead (`FAL_KEY`: Meshy's model and rig, about $1.64 a character with one action) - and the drawing too.
 
 ## What you can make
 
@@ -622,6 +623,7 @@ There, run the `$PYTHON ...` commands below as `& $PYTHON ...`.
 | onnxruntime + a 224 MB model | characters only: the AI cut-out that keeps white shoes on white paper | characters (fetched once, by itself) |
 | `OPENAI_API_KEY` | drawing, about $0.07 a prop | to draw |
 | `TRIPO_API_KEY` | characters: the 3D model, its rig and walk | for walking characters |
+| `FAL_KEY` | instead of Tripo (3D: Meshy on fal) and/or OpenAI (drawing: the same model on fal); `SPRITECAST_3D`, `SPRITECAST_PROVIDER` pick | instead of either |
 
 **Try it first, free, no key:** ask Claude to *"try SpriteCast"*. It renders one of the examples' guides on your computer and
 finishes it with the drawing that came with the example (`isoprop.py try`), so you see the whole way before paying for anything.
@@ -692,6 +694,7 @@ Everything runs on your computer except the steps below. Each paid step prints i
 | characters: `turnaround`, `draw` | OpenAI | the illustration, the turnaround and the 3D renders, with the same key |
 | characters: `3d` | Tripo (`openapi.tripo3d.ai`) | the four turnaround views, with your `TRIPO_API_KEY`; the model, its rig and walk come back |
 | `model` (props, optional) | Tripo | the text description |
+| `3d` / `model` with `FAL_KEY` | fal (`queue.fal.run`: Meshy, Tripo H3.1) | the four turnaround views or the description; the model, its rig and clips come back |
 | characters, `"modeler": "meshy"` (optional) | Meshy (`api.meshy.ai`) | the four views, with your `MESHY_API_KEY` |
 
 The keys are read from your environment only, sent only to their own service, and never written to a file or printed. What is downloaded:
@@ -746,7 +749,7 @@ Feedback decides what comes next, and what changed because of it is marked in th
 - **What does it cost?** The guides, finishing and the `try` are free. About $0.07 a prop, $0.08 for each further facing; a walking
   character about $2.2 of drawing (~$1.5 with `"mirror": true`) and 75 Tripo credits (an animal 30). Each paid step shows its cost
   and waits for your OK. The plugin is free; you pay OpenAI and Tripo directly, nothing goes to the author.
-- **Which keys do I need?** `OPENAI_API_KEY` to draw, `TRIPO_API_KEY` for walking characters and animals (Meshy optional). OpenAI may
+- **Which keys do I need?** `OPENAI_API_KEY` to draw, `TRIPO_API_KEY` for walking characters and animals (Meshy optional) - or `FAL_KEY` for both the drawing and the 3D. OpenAI may
   ask you to verify your organisation first. See [Keys](#install).
 - **Isn't this AI art?** Yes: an image model does the painting. What SpriteCast adds is the geometry: the size, the camera angle, the
   walk and the shadows come from 3D. You can give your own art as the style, or set `"draw": false` so no image model draws a walking

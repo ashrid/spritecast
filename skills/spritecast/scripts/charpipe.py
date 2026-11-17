@@ -34,7 +34,8 @@ own rigged model as "rig_glb").
                                                       facing, by face landmarks; --apply writes the factors as "head_fit", then `finish`
 
 Look at each paid step's input before running it (the turnaround before `3d`; the renders before `draw`). Keys in the environment:
-an image key (OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY - imagegen.py) and TRIPO_API_KEY (MESHY_API_KEY only with "modeler": "meshy"). Files go to <the spec's folder>/<name>/.
+an image key (OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY - imagegen.py) and TRIPO_API_KEY (MESHY_API_KEY only with "modeler": "meshy"),
+or FAL_KEY for the 3D too (SPRITECAST_3D=fal, or no Tripo key: model and rig by Meshy on fal - fal3d.py). Files go to <the spec's folder>/<name>/.
 """
 import argparse, base64, json, os, shutil, sys, time, urllib.error, urllib.request, uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -290,6 +291,9 @@ def rig(s, d, args):
     out = d / 'rig/rig.glb'
     if out.exists() and not args.again: return print(f'rig: {out} is there (--again to make it anew)')
     if not (d / 'model/model.glb').exists(): sys.exit('rig: run `model` first')
+    if fal3d.provider3d() == 'fal':
+        if fal3d.rig(s, d, args) and not args.no_render: render(s, d)
+        return
     presets = [n for n in s['actions'] if s['actions'][n]['clip'] in TRIPO_PRESETS][:3]       # (five a call: walk, idle and three more)
     skipped = [n for n in s['actions'] if n not in presets]
     if skipped: print(f'rig: not a Tripo preset (or more than three): {skipped} - give your own rig with those clips ("rig_glb")')
@@ -678,7 +682,7 @@ def all_drawn(s, d):
 
 def make3d(s, d, args):
     """model + rig + render in one go: one OK for the 3D, then the renders to look at before `draw`"""
-    cost = ('Meshy ~30 credits' + ('' if s['kind'] == 'animal' else ' + Tripo ~45') if s['modeler'] == 'meshy'
+    cost = fal3d.price(s) if fal3d.provider3d() == 'fal' else ('Meshy ~30 credits' + ('' if s['kind'] == 'animal' else ' + Tripo ~45') if s['modeler'] == 'meshy'
             else 'Tripo ~30 credits (~40 if it has to be coloured again)' if s['kind'] == 'animal' else 'Tripo ~75 credits (~85 if it has to be coloured again)')
     if not gate(args, f'3d: the model, its rig and walk ({cost}), then the renders (free), a few minutes'): return
     if s['kind'] == 'animal':                            # no rig: its skeleton is found from the mesh as it renders
