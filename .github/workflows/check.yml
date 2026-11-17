@@ -28,6 +28,8 @@ jobs:
           echo "PY=$(grep '^PYTHON=' doctor.txt | cut -d= -f2-)" >> "$GITHUB_ENV"
       - name: imagegen self-check (no network)
         run: '"$PY" skills/spritecast/scripts/imagegen.py'
+      - name: fal3d self-check (no network)
+        run: '"$PY" skills/spritecast/scripts/fal3d.py'
       - name: try (free, no key)
         run: |
           "$PY" skills/spritecast/scripts/isoprop.py try --out try

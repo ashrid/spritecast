@@ -29,7 +29,7 @@
     "fal_key": {
       "type": "string",
       "title": "fal.ai API key (instead of OpenAI)",
-      "description": "The same OpenAI image model, billed by fal.ai. From fal.ai/dashboard/keys.",
+      "description": "The same OpenAI image model, billed by fal.ai - and 3D (models, rigs) instead of Tripo. From fal.ai/dashboard/keys.",
       "sensitive": true
     },
     "openrouter_api_key": {
@@ -42,6 +42,12 @@
       "type": "string",
       "title": "Image provider (optional)",
       "description": "openai, fal or openrouter. Empty: the first of them whose key is set.",
+      "sensitive": false
+    },
+    "threed_provider": {
+      "type": "string",
+      "title": "3D provider (optional)",
+      "description": "tripo or fal. Empty: Tripo if its key is set, else fal (FAL_KEY above).",
       "sensitive": false
     },
     "tripo_api_key": {
