@@ -16,6 +16,7 @@ PRICE = {'text': 0.20, 'views': 1.20, 'rig': 0.20, 'clip': 0.12}       # USD on 
 # SpriteCast's action names → Meshy library ids (https://api.meshy.ai/web/public/animations/resources); a spec action with an int "clip" is that id
 ACTIONS = {'run': 14, 'jump': 61, 'slash': 219, 'shoot': 232, 'dive': 506, 'climb': 438, 'fall': 490, 'hurt': 178, 'turn': 576}
 QUEUE = 'https://queue.fal.run/'
+TRIPO_STRIDE = 1.1835                                                   # one stride of Tripo's walk: charpipe's default walk.t1
 
 
 def provider3d():
@@ -35,7 +36,7 @@ def gate(args, what):
 
 def price(s):
     if s.get('kind') == 'animal': return f'fal: Meshy model ${PRICE["views"]:.2f}'
-    k = len(s.get('actions') or {}) + 1                                 # idle and each action; the walk comes with the rig
+    k = len(plan_clips(s)[0])                                           # idle and each action asked for; the walk comes with the rig
     total = PRICE['views'] + PRICE['rig'] + k * PRICE['clip']
     return f'fal: Meshy model ${PRICE["views"]:.2f} + rig ${PRICE["rig"]:.2f} + {k} clips × ${PRICE["clip"]:.2f} = ${total:.2f}'
 
@@ -118,7 +119,7 @@ def views_model(s, d, args, out, grey):
 
 
 # --- the rig's clips: Meshy gives one complete GLB per clip; they become one rig.glb -----------------------------------------------------
-REQUIRED_BONES = ('Hips', 'LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftHand', 'RightHand')
+REQUIRED_BONES = ('Hips', 'LeftUpLeg', 'RightUpLeg', 'LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftHand', 'RightHand')
 SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
 COMPS = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}
 
@@ -196,7 +197,7 @@ def gait_cycles(glb, clip):
     if not neg: return 1
     lag = neg + int(np.argmax(ac[neg:]))
     if ac[lag] < 0.3 or lag >= len(x) - 1: return 1
-    return max(1, round((t[-1] - t[0]) / (lag * (t[-1] - t[0]) / (len(t) - 1))))
+    return max(1, round((len(t) - 1) / lag))                             # the clip's length over one period (keys are evenly spaced)
 
 
 def facing(glb):
@@ -220,13 +221,15 @@ def facing(glb):
 
 
 def plan_clips(s):
-    """[(name, Meshy id)] to ask for - idle first, then each action with an id, nine in all (fal's limit is ten) - and the actions left out"""
-    picked, skipped = [('idle', 0)], []
+    """[(name, Meshy id)] to ask for - idle first, then each action with an id, nine in all (fal's limit is ten) - and the actions left out:
+    those with no Meshy clip, and those past the nine"""
+    picked, no_id, over = [('idle', 0)], [], []
     for n, a in (s.get('actions') or {}).items():
         c = a.get('clip'); i = a.get('meshy_id', c if isinstance(c, int) else ACTIONS.get(c, ACTIONS.get(n)))
-        if i is not None and len(picked) < 9: picked.append((n, i))
-        else: skipped.append(n)
-    return picked, skipped
+        if i is None: no_id.append(n)
+        elif len(picked) < 9: picked.append((n, i))
+        else: over.append(n)
+    return picked, no_id, over
 
 
 def rig(s, d, args):
@@ -236,8 +239,9 @@ def rig(s, d, args):
     import hashlib
     import charlib as CL
     d = Path(d); out = d / 'rig/rig.glb'; model = d / 'model/model.glb'
-    picked, skipped = plan_clips(s)
-    if skipped: print(f'rig: no Meshy clip for {", ".join(skipped)} (or more than eight actions) - left out; give a Meshy id as "clip", or your own rig ("rig_glb")')
+    picked, no_id, over = plan_clips(s)
+    if no_id: print(f'rig: no Meshy clip for {", ".join(no_id)} - left out; give one as "clip": <Meshy id> (the library: fal3d.ACTIONS), or your own rig ("rig_glb")')
+    if over: print(f'rig: {", ".join(over)} left out - eight actions a rig at most; rig them in a second character spec, or your own rig ("rig_glb")')
     cost = PRICE['rig'] + len(picked) * PRICE['clip']
     if not gate(args, f'rig: fal Meshy rig ${PRICE["rig"]:.2f} + {len(picked)} clips × ${PRICE["clip"]:.2f} = ${cost:.2f} (the walk comes with it), a few minutes'): return False
     tag = hashlib.sha1(model.read_bytes()).hexdigest()[:12]              # the rig kept for a cut-off run belongs to THIS model
@@ -250,6 +254,7 @@ def rig(s, d, args):
     base = fetch(walk, d / 'rig/fal-walk.glb')
     parts = [(n, fetch(c['animation_glb']['url'], d / f'rig/fal-{n}.glb')) for (n, _), c in zip(picked, clips)]
     m = d / 'rig/merged.glb'; merge(base, parts, m)
+    validate(m, ['walk'] + [n for n, _ in picked])                       # before facing() reads the thighs
     turn = round(facing(m) / 90) * 90 % 360
     if turn: CL.turn_root(m, m, turn)
     durs = CL.fix_tripo(m, d / 'rig/named.glb'); feet = CL.plant_feet(d / 'rig/named.glb', out)
@@ -265,8 +270,9 @@ def write_spec(path, s, walk_t1, picked):
     the walk's one stride, unless the user set their own; each rigged action played whole (Tripo's tuned windows, e.g. slash 0.6-2.7 s, would
     cut Meshy's clips wrong), unless the user set its times; an action given as a Meshy id gets the clip name it has in the rig"""
     raw = json.loads(Path(path).read_text(encoding='utf-8')); w = raw.get('walk') or {}
-    if w.get('t1') in (None, 1.1835):                                   # (1.1835 s: one stride of Tripo's walk, charpipe's default)
-        raw['walk'] = {'clip': w.get('clip', 'walk'), 't0': w.get('t0', 0), 't1': round(walk_t1, 4)}; s.setdefault('walk', {})['t1'] = round(walk_t1, 4)
+    if w.get('t1') in (None, TRIPO_STRIDE) or w.get('stride_from') == 'fal':
+        raw['walk'] = {'clip': w.get('clip', 'walk'), 't0': w.get('t0', 0), 't1': round(walk_t1, 4), 'stride_from': 'fal'}   # marked: forget_fal_stride
+        s.setdefault('walk', {})['t1'] = round(walk_t1, 4)
     rigged = {n: i for n, i in picked if n != 'idle'}; out = []
     for e in raw.get('actions') or []:
         n = e if isinstance(e, str) else e.get('name')
@@ -277,6 +283,15 @@ def write_spec(path, s, walk_t1, picked):
                 e['meshy_id'], e['clip'] = rigged[n], n; sa.update(clip=n, meshy_id=rigged[n])
         out.append(e)
     if 'actions' in raw: raw['actions'] = out
+    Path(path).write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding='utf-8')
+
+
+def forget_fal_stride(path, s):
+    """back on Tripo after a fal rig: the walk's stride written by write_spec is Meshy's - Tripo's walk would be cut at it. Called on charpipe.rig's
+    Tripo side; a stride the user set (not marked) stays"""
+    raw = json.loads(Path(path).read_text(encoding='utf-8')); w = raw.get('walk') or {}
+    if w.get('stride_from') != 'fal': return
+    w.pop('stride_from'); w['t1'] = TRIPO_STRIDE; raw['walk'] = w; s.setdefault('walk', {})['t1'] = TRIPO_STRIDE
     Path(path).write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
@@ -352,7 +367,7 @@ if __name__ == '__main__':                                             # self-ch
     # --- merge, validate, gait cycles: on GLBs built here --------------------------------------------------------------------------------
     import numpy as np
     import charlib as CL
-    BONES = ['Hips', 'LeftUpLeg', *[b for b in REQUIRED_BONES if b != 'Hips']]
+    BONES = list(REQUIRED_BONES)
     def _glb(path, names, anim, times, rots, buffers=1, hips_z=None):
         """one buffer; every accessor of the animation packed into ONE bufferView with its own byteOffset (as exporters do)"""
         nodes = [{'name': n} for n in names]; data = bytearray(); accs = []
@@ -455,18 +470,20 @@ if __name__ == '__main__':                                             # self-ch
 
     acts = {n: {'clip': n} for n in ['slash', 'wave', 'run', 'jump', 'shoot', 'dive', 'climb', 'fall', 'hurt', 'turn']}
     acts['cast'] = {'clip': 57}; acts['bow'] = {'clip': 'bow', 'meshy_id': 12}
-    picked, skipped = plan_clips({'actions': acts})
+    picked, no_id, over = plan_clips({'actions': acts})
     assert picked[:3] == [('idle', 0), ('slash', 219), ('run', 14)] and len(picked) == 9, picked
-    assert 'wave' in skipped and set(skipped) >= {'cast', 'bow'} - {n for n, _ in picked}, skipped
-    picked, skipped = plan_clips({'actions': {'cast': {'clip': 57}, 'bow': {'clip': 'bow', 'meshy_id': 12}}})
-    assert picked == [('idle', 0), ('cast', 57), ('bow', 12)] and not skipped
+    assert no_id == ['wave'] and over == ['turn', 'cast', 'bow'], (no_id, over)
+    picked, no_id, over = plan_clips({'actions': {'cast': {'clip': 57}, 'bow': {'clip': 'bow', 'meshy_id': 12}}})
+    assert picked == [('idle', 0), ('cast', 57), ('bow', 12)] and not no_id and not over
+    assert price({'kind': 'person', 'actions': {'wave': {'clip': 'wave'}, 'slash': {'clip': 'slash'}}}).endswith('= $1.64')   # wave has no clip: not paid for
+    assert price({'kind': 'person', 'actions': acts}).endswith('9 clips × $0.12 = $2.48')                                      # nine at most
 
     sp = tmp / 'a.json'; sp.write_text(json.dumps({'name': 'a', 'actions': ['slash', {'name': 'cast', 'clip': 57}, 'wave']}))
     s = {'walk': {'clip': 'walk', 't0': 0, 't1': 1.1835}, 'actions': {'slash': {'clip': 'slash', 't0': 0.6, 't1': 2.7}, 'cast': {'clip': 57, 't0': 0, 't1': None},
                                                                       'wave': {'clip': 'wave', 't0': 0, 't1': None}}}
     write_spec(sp, s, 1.02, [('slash', 219), ('cast', 57)])
     raw = json.loads(sp.read_text())
-    assert raw['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.02}
+    assert raw['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.02, 'stride_from': 'fal'}
     assert raw['actions'][0] == {'name': 'slash', 't0': 0, 't1': None} and raw['actions'][1] == {'name': 'cast', 'clip': 'cast', 'meshy_id': 57, 't0': 0, 't1': None}
     assert raw['actions'][2] == 'wave'                                  # not rigged: left as the user wrote it
     assert s['walk']['t1'] == 1.02 and s['actions']['slash']['t0'] == 0 and s['actions']['slash']['t1'] is None and s['actions']['cast']['clip'] == 'cast'
@@ -474,6 +491,14 @@ if __name__ == '__main__':                                             # self-ch
     write_spec(sp, {'walk': {'t1': 0.9}, 'actions': {'slash': {'clip': 'slash', 't0': 0.2, 't1': 1.0}}}, 1.02, [('slash', 219)])
     raw = json.loads(sp.read_text())
     assert raw['walk']['t1'] == 0.9 and raw['actions'][0] == {'name': 'slash', 't0': 0.2, 't1': 1.0}    # the user's own times stay
+    sp.write_text(json.dumps({'name': 'a', 'walk': {'clip': 'walk', 't0': 0, 't1': 1.033, 'stride_from': 'fal'}}))           # rigged on fal before: a re-rig rewrites it
+    write_spec(sp, {'walk': {}}, 1.05, [])
+    assert json.loads(sp.read_text())['walk']['t1'] == 1.05
+    s = {'walk': {'clip': 'walk', 't0': 0, 't1': 1.05}}                 # back to Tripo: its own stride, the fal one forgotten
+    forget_fal_stride(sp, s)
+    assert json.loads(sp.read_text())['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.1835} and s['walk']['t1'] == 1.1835
+    sp.write_text(json.dumps({'name': 'a', 'walk': {'clip': 'walk', 't0': 0, 't1': 0.9}})); before = sp.read_text()
+    forget_fal_stride(sp, {'walk': {'t1': 0.9}}); assert sp.read_text() == before                                           # the user's own: kept
     sp.write_text(json.dumps({'name': 'a', 'actions': [{'name': 'attack', 'clip': 'slash'}]}))           # merged as "attack": render must look for that
     s = {'actions': {'attack': {'clip': 'slash', 't0': 0, 't1': None}}}
     assert plan_clips(s)[0] == [('idle', 0), ('attack', 219)]
@@ -490,4 +515,54 @@ if __name__ == '__main__':                                             # self-ch
         with mock.patch('urllib.request.urlopen', uo): assert run('fal-ai/x/y', {}, keep, False, tag='modelB') == {'ok': 6}
         assert not any(m == 'POST' for m, _ in calls)
     os.environ.clear(); os.environ.update(keep_env)
+
+    # --- rig(), the whole sequence on a small Mixamo skeleton: merge → facing → turn → fix_tripo → plant_feet → validate → spec ----------
+    def skel_glb(path, anim, dur, cycles, left=(0.1, 0, 0), thighs=True):
+        """Hips → thighs → legs → feet → toes, spine → arms → hands; every bone keyed, the left thigh swinging `cycles` times"""
+        pre = 'mixamorig:'; nodes = [{'name': pre + 'Hips', 'translation': [0, 1, 0], 'children': []}]
+        def add(name, t, par):
+            nodes.append({'name': pre + name, 'translation': list(t)}); nodes[par].setdefault('children', []).append(len(nodes) - 1); return len(nodes) - 1
+        for side, sx in (('Left', 1), ('Right', -1)):
+            up = add(side + 'UpLeg' if thighs else side + 'Thigh', (left[0] * sx, left[1], left[2] * sx), 0)
+            ft = add(side + 'Foot', (0, -0.9, 0), up); add(side + 'ToeBase', (0, -0.05, 0.12), ft)
+        sp = add('Spine', (0, 0.3, 0), 0)
+        for side, sx in (('Left', 1), ('Right', -1)): add(side + 'Hand', (0.6 * sx, 0.2, 0), add(side + 'Arm', (0.15 * sx, 0.2, 0), sp))
+        n = 31; times = np.linspace(0, dur, n); data = bytearray(); accs = []
+        def acc(a, typ):
+            a = np.asarray(a, np.float32); o = len(data); data.extend(a.tobytes())
+            d = {'bufferView': 0, 'byteOffset': o, 'componentType': 5126, 'count': len(a), 'type': typ}
+            if typ == 'SCALAR': d['min'], d['max'] = [float(a.min())], [float(a.max())]
+            accs.append(d); return len(accs) - 1
+        t = acc(times, 'SCALAR'); samplers, channels = [], []
+        for i, nd in enumerate(nodes):
+            q = swing(cycles, n) if key(nd['name']) in ('LeftUpLeg', 'LeftThigh') else np.tile([0, 0, 0, 1.0], (n, 1))
+            samplers.append({'input': t, 'output': acc(q, 'VEC4')}); channels.append({'sampler': len(samplers) - 1, 'target': {'node': i, 'path': 'rotation'}})
+        samplers.append({'input': t, 'output': acc(np.tile([0, 1, 0.0], (n, 1)), 'VEC3')}); channels.append({'sampler': len(samplers) - 1, 'target': {'node': 0, 'path': 'translation'}})
+        js = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}], 'nodes': nodes, 'accessors': accs,
+              'bufferViews': [{'buffer': 0, 'byteOffset': 0, 'byteLength': len(data)}], 'buffers': [{'byteLength': len(data)}],
+              'animations': [{'name': anim, 'samplers': samplers, 'channels': channels}]}
+        CL.write_glb(path, js, data); return Path(path)
+    def rig_case(name, left=(0.1, 0, 0), thighs=True, actions=('slash',)):
+        rd = tmp / name; (rd / 'model').mkdir(parents=True); (rd / 'model/model.glb').write_bytes(b'model-' + name.encode())
+        src = {'u-walk': skel_glb(tmp / f'{name}-w.glb', 'Armature|walking_man|baselayer', 2.0, 2, left, thighs),
+               'u-idle': skel_glb(tmp / f'{name}-i.glb', 'Armature|Idle|baselayer', 4.0, 0, left, thighs),
+               'u-a': skel_glb(tmp / f'{name}-a.glb', 'Armature|Left_Slash|baselayer', 3.0, 0, left, thighs)}
+        spf = tmp / f'{name}.json'; spf.write_text(json.dumps({'name': name, 'actions': list(actions)}))
+        s = {'kind': 'person', 'walk': {'clip': 'walk', 't0': 0, 't1': 1.1835}, 'actions': {a: {'clip': a, 't0': 0, 't1': None} for a in actions}}
+        got = {}
+        def frun(endpoint, body, keep, again, tag=''):
+            got.update(body=body, tag=tag)
+            return {'basic_animations': {'walking_glb': {'url': 'u-walk'}}, 'animations': [{'animation_glb': {'url': u}} for u in ('u-idle', 'u-a')[:len(body['animation_action_ids'])]]}
+        def ffetch(url, path): Path(path).parent.mkdir(parents=True, exist_ok=True); Path(path).write_bytes(src[url].read_bytes()); return Path(path)
+        with mock.patch(__name__ + '.run', frun), mock.patch(__name__ + '.fetch', ffetch):
+            ok = rig(s, rd, NS(yes=True, again=False, spec=str(spf)))
+        return ok, rd, spf, s, got
+    ok, rd, spf, s, got = rig_case('r1')
+    assert ok and got['body']['animation_action_ids'] == [0, 219] and got['body']['model_url'].startswith('data:model/gltf-binary') and len(got['tag']) == 12
+    validate(rd / 'rig/rig.glb', ['walk', 'idle', 'slash'])
+    assert abs(facing(rd / 'rig/rig.glb')) < 1e-3
+    assert json.loads(spf.read_text())['walk']['t1'] == 1.0 and s['walk']['t1'] == 1.0     # 2 s holding 2 strides
+    ok, rd, *_ = rig_case('r2', left=(0, 0, -0.1))                     # a rig facing +x: turned to face +z
+    assert ok and abs(facing(rd / 'rig/rig.glb')) < 1e-3, facing(rd / 'rig/rig.glb')
+    assert 'LeftUpLeg' in exits(lambda: rig_case('r3', thighs=False))  # no thighs: the Mixamo stop, not a KeyError
     print('fal3d: ok')

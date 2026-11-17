@@ -294,6 +294,7 @@ def rig(s, d, args):
     if fal3d.provider3d() == 'fal':
         if fal3d.rig(s, d, args) and not args.no_render: render(s, d)
         return
+    fal3d.forget_fal_stride(args.spec, s)                              # (rigged on fal before: Tripo's walk has its own stride)
     presets = [n for n in s['actions'] if s['actions'][n]['clip'] in TRIPO_PRESETS][:3]       # (five a call: walk, idle and three more)
     skipped = [n for n in s['actions'] if n not in presets]
     if skipped: print(f'rig: not a Tripo preset (or more than three): {skipped} - give your own rig with those clips ("rig_glb")')
