@@ -92,6 +92,26 @@ def text_model(spec, d, args, size, prompt):
     print(f'model: {out}  ({time.time() - t0:.0f} s, ${PRICE["text"]:.2f}) - the spec now uses it; run `yaws` to turn it the right way')
 
 
+# --- a character's (or animal's) model from its turnaround (charpipe.py model) ----------------------------------------------------------
+def views_model(s, d, args, out, grey):
+    """Meshy v6 multi-image-to-3d on fal, the same settings as charpipe's own Meshy call → model/model.glb, and its hosted URL for `rig`.
+    grey: charpipe.grey_texture (passed in: charpipe imports this module)"""
+    d = Path(d)
+    if args.again:                                                      # a new model: what was made from the old one goes with it
+        for f in ('model/fal-request.txt', 'model/fal-model-url.txt', 'rig/fal-request.txt'): (d / f).unlink(missing_ok=True)
+    if not gate(args, f'model: fal Meshy v6 multi-image-to-3d, ${PRICE["views"]:.2f}, a few minutes'): return
+    body = {'image_urls': [data_uri(d / f'turnaround/{n}.png', 'image/png') for n in ('front', 'side', 'left', 'back')], 'should_texture': True,
+            'enable_pbr': False, 'should_remesh': True, 'topology': 'quad', 'target_polycount': 40000, 'pose_mode': 'a-pose'}
+    t0 = time.time(); keep = d / 'model/fal-request.txt'
+    r = run('fal-ai/meshy/v6/multi-image-to-3d', body, keep, args.again)
+    url = (r.get('model_glb') or {}).get('url') or ((r.get('model_urls') or {}).get('glb') or {}).get('url')
+    if not url: sys.exit(f'model: fal sent no model back ({", ".join(r)})')
+    fetch(url, out); (d / 'model/fal-model-url.txt').write_text(f'{keep.read_text().strip()} {url}')
+    if (r.get('thumbnail') or {}).get('url'): fetch(r['thumbnail']['url'], d / 'model/thumb-fal.png')
+    if grey(out): sys.exit(f'model: fal sent the model back uncoloured - run `model --again` to make it anew (${PRICE["views"]:.2f} again)')
+    print(f'model: {out} ({time.time() - t0:.0f} s, ${PRICE["views"]:.2f}) - look at model/thumb-fal.png before `rig`')
+
+
 # --- the rig's clips: Meshy gives one complete GLB per clip; they become one rig.glb -----------------------------------------------------
 REQUIRED_BONES = ('Hips', 'LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase', 'LeftHand', 'RightHand')
 SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
@@ -307,4 +327,25 @@ if __name__ == '__main__':                                             # self-ch
     assert {k: sent['body'][k] for k in ('prompt', 'texture', 'texture_quality', 'face_limit')} == \
         {'prompt': 'a lamp', 'texture': True, 'texture_quality': 'standard', 'face_limit': 80000}
     assert (tmp / 'lamp/fal.glb').read_bytes() == b'glb'
+
+    # --- views_model: a character's model from its four views ---------------------------------------------------------------------------
+    from PIL import Image
+    cd = tmp / 'hero'; (cd / 'turnaround').mkdir(parents=True); (cd / 'model').mkdir()
+    for i, n in enumerate(('front', 'side', 'left', 'back')): Image.new('RGB', (8, 8), (i * 60, 0, 0)).save(cd / f'turnaround/{n}.png')
+    def fake_run2(endpoint, body, keep, again):
+        sent.clear(); sent.update(endpoint=endpoint, body=body, keep=keep); Path(keep).write_text('m1')
+        return {'model_glb': {'url': 'https://f/hero.glb'}, 'thumbnail': {'url': 'https://f/t.png'}}
+    (cd / 'rig').mkdir(); (cd / 'rig/fal-request.txt').write_text('m0 r0')
+    with mock.patch(__name__ + '.run', fake_run2), mock.patch(__name__ + '.fetch', fake_fetch):
+        views_model({}, cd, NS(yes=True, again=True), cd / 'model/model.glb', lambda p: False)
+        b = sent['body']
+        assert sent['endpoint'] == 'fal-ai/meshy/v6/multi-image-to-3d' and len(b['image_urls']) == 4
+        assert [base64.b64decode(u.split(',', 1)[1]) for u in b['image_urls']] == [(cd / f'turnaround/{n}.png').read_bytes() for n in ('front', 'side', 'left', 'back')]
+        assert all(u.startswith('data:image/png;base64,') for u in b['image_urls'])
+        assert {k: b[k] for k in ('should_texture', 'enable_pbr', 'topology', 'target_polycount', 'pose_mode', 'should_remesh')} == \
+            {'should_texture': True, 'enable_pbr': False, 'topology': 'quad', 'target_polycount': 40000, 'pose_mode': 'a-pose', 'should_remesh': True}
+        assert (cd / 'model/fal-model-url.txt').read_text() == 'm1 https://f/hero.glb'
+        assert not (cd / 'rig/fal-request.txt').exists()                 # --again: the old rig belongs to the old model
+        assert (cd / 'model/model.glb').exists()
+        assert '$1.20' in exits(lambda: views_model({}, cd, NS(yes=True, again=True), cd / 'model/model.glb', lambda p: True))
     print('fal3d: ok')

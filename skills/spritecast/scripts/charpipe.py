@@ -47,6 +47,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE)); import charlib as CL   # noqa: E402
 import touchup as TU   # noqa: E402
 import imagegen as IG   # noqa: E402
+import fal3d   # noqa: E402
 SPEC_PATH = None
 DIRS = ['south', 'south-east', 'east', 'north-east', 'north', 'north-west', 'west', 'south-west']
 PAIR = {'east': 'west', 'west': 'east', 'north-east': 'north-west', 'north-west': 'north-east', 'south-east': 'south-west', 'south-west': 'south-east'}
@@ -279,6 +280,7 @@ def model(s, d, args):
     if out.exists() and not args.again: return print(f'model: {out} is there (--again to make it anew)')
     if not (d / 'turnaround/left.png').exists(): sys.exit('model: run `turnaround` first')
     out.parent.mkdir(parents=True, exist_ok=True)
+    if fal3d.provider3d() == 'fal': return fal3d.views_model(s, d, args, out, grey_texture)
     for f in ('tripo-task.txt', 'textured.glb'): (d / 'model' / f).unlink(missing_ok=True)
     (model_meshy if s['modeler'] == 'meshy' else model_tripo)(s, d, args, out)
 
