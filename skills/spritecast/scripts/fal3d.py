@@ -69,10 +69,13 @@ def run(endpoint, body, keep, again, tag=''):
     while True:
         st = _call(st_url)
         if st.get('status') == 'COMPLETED': break
-        if st.get('status') in ('FAILED', 'ERROR', 'CANCELLED'): sys.exit(f'fal {endpoint}: {st.get("status")} {st.get("error") or st}')
+        if st.get('status') in ('FAILED', 'ERROR', 'CANCELLED'):
+            keep.unlink(missing_ok=True); sys.exit(f'fal {endpoint}: {st.get("status")} {st.get("error") or st}')
         if time.time() - t0 > 1200: sys.exit(f'fal {endpoint}: still {st.get("status")} after 20 min - run again later to pick it up ({keep})')
         time.sleep(5)
-    return _call(res_url)
+    try: return _call(res_url)
+    except SystemExit:                                                  # fal fails a job as COMPLETED + an error result: not one to pick up again
+        keep.unlink(missing_ok=True); raise
 
 
 # --- a prop's detailed model (isoprop.py model) -----------------------------------------------------------------------------------------
@@ -96,11 +99,11 @@ def text_model(spec, d, args, size, prompt):
 
 # --- a character's (or animal's) model from its turnaround (charpipe.py model) ----------------------------------------------------------
 def views_model(s, d, args, out, grey):
-    """Meshy v6 multi-image-to-3d on fal, the same settings as charpipe's own Meshy call → model/model.glb, and its hosted URL for `rig`.
+    """Meshy v6 multi-image-to-3d on fal, the same settings as charpipe's own Meshy call → model/model.glb.
     grey: charpipe.grey_texture (passed in: charpipe imports this module)"""
     d = Path(d)
     if args.again:                                                      # a new model: what was made from the old one goes with it
-        for f in ('model/fal-request.txt', 'model/fal-model-url.txt', 'rig/fal-request.txt'): (d / f).unlink(missing_ok=True)
+        for f in ('model/fal-request.txt', 'rig/fal-request.txt'): (d / f).unlink(missing_ok=True)
     if not gate(args, f'model: fal Meshy v6 multi-image-to-3d, ${PRICE["views"]:.2f}, a few minutes'): return
     body = {'image_urls': [data_uri(d / f'turnaround/{n}.png', 'image/png') for n in ('front', 'side', 'left', 'back')], 'should_texture': True,
             'enable_pbr': False, 'should_remesh': True, 'topology': 'quad', 'target_polycount': 40000, 'pose_mode': 'a-pose'}
@@ -108,7 +111,7 @@ def views_model(s, d, args, out, grey):
     r = run('fal-ai/meshy/v6/multi-image-to-3d', body, keep, args.again)
     url = (r.get('model_glb') or {}).get('url') or ((r.get('model_urls') or {}).get('glb') or {}).get('url')
     if not url: sys.exit(f'model: fal sent no model back ({", ".join(r)})')
-    fetch(url, out); (d / 'model/fal-model-url.txt').write_text(f'{keep.read_text().strip()} {url}')
+    fetch(url, out)
     if (r.get('thumbnail') or {}).get('url'): fetch(r['thumbnail']['url'], d / 'model/thumb-fal.png')
     if grey(out): sys.exit(f'model: fal sent the model back uncoloured - run `model --again` to make it anew (${PRICE["views"]:.2f} again)')
     print(f'model: {out} ({time.time() - t0:.0f} s, ${PRICE["views"]:.2f}) - look at model/thumb-fal.png before `rig`')
@@ -238,8 +241,7 @@ def rig(s, d, args):
     cost = PRICE['rig'] + len(picked) * PRICE['clip']
     if not gate(args, f'rig: fal Meshy rig ${PRICE["rig"]:.2f} + {len(picked)} clips × ${PRICE["clip"]:.2f} = ${cost:.2f} (the walk comes with it), a few minutes'): return False
     tag = hashlib.sha1(model.read_bytes()).hexdigest()[:12]              # the rig kept for a cut-off run belongs to THIS model
-    hosted = (d / 'model/fal-model-url.txt').read_text().split() if (d / 'model/fal-model-url.txt').exists() else []
-    url = hosted[-1] if hosted else data_uri(model, 'model/gltf-binary')
+    url = data_uri(model, 'model/gltf-binary')                          # always the model on disk: a saved fal URL can expire or be another model's
     t0 = time.time()
     r = run('fal-ai/meshy/rigging/multi-animation', {'model_url': url, 'skeleton_template': 'mixamo', 'height_meters': float(s.get('height_m', 1.7)),
                                                     'animation_action_ids': [i for _, i in picked]}, d / 'rig/fal-request.txt', args.again, tag=tag)
@@ -271,7 +273,8 @@ def write_spec(path, s, walk_t1, picked):
         if n in rigged:
             e = {'name': e} if isinstance(e, str) else dict(e); sa = s.get('actions', {}).get(n, {})
             if 't0' not in e and 't1' not in e: e['t0'], e['t1'] = 0, None; sa.update(t0=0, t1=None)
-            if isinstance(e.get('clip'), int): e['meshy_id'], e['clip'] = e['clip'], n; sa.update(clip=n, meshy_id=e['meshy_id'])
+            if e.get('clip', n) != n:                                   # merged under the action's name; the id kept for `rig --again`
+                e['meshy_id'], e['clip'] = rigged[n], n; sa.update(clip=n, meshy_id=rigged[n])
         out.append(e)
     if 'actions' in raw: raw['actions'] = out
     Path(path).write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding='utf-8')
@@ -335,6 +338,15 @@ if __name__ == '__main__':                                             # self-ch
         keep = tmp / 'k3.txt'                                          # a failed job: its error in the exit message
         uo, _ = fake([('POST', 'queue.fal.run', {'request_id': 'r3'}), ('GET', 'requests/r3/status', {'status': 'FAILED', 'error': 'bad mesh'})])
         with mock.patch('urllib.request.urlopen', uo): assert 'bad mesh' in exits(lambda: run('fal-ai/x/y', {}, keep, False))
+        assert not keep.exists()                                       # a failed job is not picked up again on the next run
+        keep = tmp / 'k3b.txt'                                         # how fal really fails (the probe): COMPLETED, then the result is a 422
+        def urlopen_422(req, timeout=None):
+            if req.get_method() == 'POST': return Resp(json.dumps({'request_id': 'r7'}).encode())
+            if req.full_url.endswith('/status'): return Resp(json.dumps({'status': 'COMPLETED'}).encode())
+            raise urllib.error.HTTPError(req.full_url, 422, 'x', {}, io.BytesIO(b'{"detail": "too many triangles"}'))
+        with mock.patch('urllib.request.urlopen', urlopen_422):
+            msg = exits(lambda: run('fal-ai/x/y', {}, keep, False))
+        assert 'too many triangles' in msg and not keep.exists(), msg
     os.environ.clear(); os.environ.update(keep_env)
 
     # --- merge, validate, gait cycles: on GLBs built here --------------------------------------------------------------------------------
@@ -427,7 +439,6 @@ if __name__ == '__main__':                                             # self-ch
         assert all(u.startswith('data:image/png;base64,') for u in b['image_urls'])
         assert {k: b[k] for k in ('should_texture', 'enable_pbr', 'topology', 'target_polycount', 'pose_mode', 'should_remesh')} == \
             {'should_texture': True, 'enable_pbr': False, 'topology': 'quad', 'target_polycount': 40000, 'pose_mode': 'a-pose', 'should_remesh': True}
-        assert (cd / 'model/fal-model-url.txt').read_text() == 'm1 https://f/hero.glb'
         assert not (cd / 'rig/fal-request.txt').exists()                 # --again: the old rig belongs to the old model
         assert (cd / 'model/model.glb').exists()
         assert '$1.20' in exits(lambda: views_model({}, cd, NS(yes=True, again=True), cd / 'model/model.glb', lambda p: True))
@@ -463,7 +474,13 @@ if __name__ == '__main__':                                             # self-ch
     write_spec(sp, {'walk': {'t1': 0.9}, 'actions': {'slash': {'clip': 'slash', 't0': 0.2, 't1': 1.0}}}, 1.02, [('slash', 219)])
     raw = json.loads(sp.read_text())
     assert raw['walk']['t1'] == 0.9 and raw['actions'][0] == {'name': 'slash', 't0': 0.2, 't1': 1.0}    # the user's own times stay
+    sp.write_text(json.dumps({'name': 'a', 'actions': [{'name': 'attack', 'clip': 'slash'}]}))           # merged as "attack": render must look for that
+    s = {'actions': {'attack': {'clip': 'slash', 't0': 0, 't1': None}}}
+    assert plan_clips(s)[0] == [('idle', 0), ('attack', 219)]
+    write_spec(sp, s, 1.02, [('attack', 219)])
+    assert json.loads(sp.read_text())['actions'][0]['clip'] == 'attack' and s['actions']['attack']['clip'] == 'attack'
 
+    env(FAL_KEY='k')                                                   # (CI has no key: _call reads it before the faked urlopen)
     with mock.patch('time.sleep', lambda s: None):                     # a kept job is taken only under the same tag (the model it was made for)
         keep = tmp / 'k5.txt'; keep.write_text('modelA r5')
         uo, calls = fake([('POST', 'fal-ai/x/y', {'request_id': 'r6'}), ('GET', 'requests/r6/status', {'status': 'COMPLETED'}), ('GET', 'requests/r6', {'ok': 6})])
@@ -472,4 +489,5 @@ if __name__ == '__main__':                                             # self-ch
         uo, calls = fake([('GET', 'requests/r6/status', {'status': 'COMPLETED'}), ('GET', 'requests/r6', {'ok': 6})])
         with mock.patch('urllib.request.urlopen', uo): assert run('fal-ai/x/y', {}, keep, False, tag='modelB') == {'ok': 6}
         assert not any(m == 'POST' for m, _ in calls)
+    os.environ.clear(); os.environ.update(keep_env)
     print('fal3d: ok')
