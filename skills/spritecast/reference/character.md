@@ -57,7 +57,7 @@ Three OKs: `turnaround`, `3d` (= `model` + `rig` + `render`), `draw` (then `fini
 | `shoulder_wide` | how far out the collar and arm bones are set (1.05; 1.1 for a man); small on its own |
 | `pitch` | camera degrees down (30 = 2:1 isometric) |
 | `frames` | walk frames (8) |
-| `walk` / `idle` | clip names and times: `{"clip": "walk", "t0": 0, "t1": 1.1835}` (one stride of Tripo's walk; on fal `rig` writes Meshy's stride, 1.033, into the spec, marked `"stride_from": "fal"` - a later Tripo `rig` puts 1.1835 back), `{"clip": "idle", "t": 0}` |
+| `walk` / `idle` | clip names and times: `{"clip": "walk", "t0": 0, "t1": 1.1835}` (one stride of Tripo's walk; on fal `rig` writes Meshy's stride, 1.033, into the spec, marked `"stride_from": "fal"`, and `head_up` 8 when the spec has none (Meshy's walk looks ahead; 24 tipped the head back) - a later Tripo `rig` puts 1.1835 and 24 back; the idle on fal is Meshy's "Idle 3" (243): its "Idle" (0) is a crouched stance with the feet 50 cm apart, `"idle": {"meshy_id": N}` picks another), `{"clip": "idle", "t": 0}` |
 | `neck` | where the neck is, as a share of the figure's height from the top (0.16), for steadying the heads |
 | `frame_px` | output frame height (256); `pack --px N` makes another set at N px in `out-Npx/` |
 | `render_px` | the renders' and finished frames' size (1024; a project rendered at 512 before keeps that until you set it) |

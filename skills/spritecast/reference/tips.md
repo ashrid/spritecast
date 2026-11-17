@@ -26,7 +26,8 @@ Learned making a few hundred props for an isometric life-sim.
 
 - **3D through fal**: with `FAL_KEY` and no Tripo key (or `SPRITECAST_3D=fal`), props' models are Tripo H3.1 on fal ($0.20) and
   characters' model and rig are Meshy on fal ($1.20 + $0.20 + $0.12 a clip). Actions map to Meshy library clips (fal3d.ACTIONS); any of
-  Meshy's 680 can be asked for as `"clip": <id>`.
+  Meshy's 680 can be asked for as `"clip": <id>`. The idle is "Idle 3" (243, upright, feet together); `rig` sets `head_up` 8 (Meshy's
+  walk looks ahead) unless the spec has its own.
 - **Which provider**: OpenAI (`OPENAI_API_KEY`), fal.ai (`FAL_KEY`) or OpenRouter (`OPENROUTER_API_KEY`) draw with the same
   `gpt-image-2.5-sunburst` at the same price per token; `SPRITECAST_PROVIDER=openai|fal|openrouter` picks when more than one key is
   set. fal gives no token count back, so its cost line is the estimate. OpenRouter takes a ratio, not pixels - each size here is one

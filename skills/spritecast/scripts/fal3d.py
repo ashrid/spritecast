@@ -15,8 +15,13 @@ KEYS3D = {'tripo': 'TRIPO_API_KEY', 'fal': 'FAL_KEY'}
 PRICE = {'text': 0.20, 'views': 1.20, 'rig': 0.20, 'clip': 0.12}       # USD on fal, 2026-11
 # SpriteCast's action names → Meshy library ids (https://api.meshy.ai/web/public/animations/resources); a spec action with an int "clip" is that id
 ACTIONS = {'run': 14, 'jump': 61, 'slash': 219, 'shoot': 232, 'dive': 506, 'climb': 438, 'fall': 490, 'hurt': 178, 'turn': 576}
+# Meshy's "Idle" (0), "Idle 1" (11) and "Idle 2" (12) are crouched ready stances, the feet 50 cm apart front to back - a lunge in the side
+# views and a lifted foot from the front (seen on the first fal character, 2026-11-17). "Idle 3" stands upright, the feet together, the arms down.
+IDLE = 243                                                              # a spec can pick another: "idle": {"meshy_id": N}
 QUEUE = 'https://queue.fal.run/'
 TRIPO_STRIDE = 1.1835                                                   # one stride of Tripo's walk: charpipe's default walk.t1
+TRIPO_HEAD_UP, HEAD_UP = 24, 8          # the head raised in the renders: Tripo's walk looks down (24, charpipe's default); Meshy's looks ahead -
+                                        # at 24 it was tipped back in every side view (first fal character, 2026-11-17), at 8 level
 
 
 def provider3d():
@@ -223,7 +228,7 @@ def facing(glb):
 def plan_clips(s):
     """[(name, Meshy id)] to ask for - idle first, then each action with an id, nine in all (fal's limit is ten) - and the actions left out:
     those with no Meshy clip, and those past the nine"""
-    picked, no_id, over = [('idle', 0)], [], []
+    picked, no_id, over = [('idle', (s.get('idle') or {}).get('meshy_id', IDLE))], [], []
     for n, a in (s.get('actions') or {}).items():
         c = a.get('clip'); i = a.get('meshy_id', c if isinstance(c, int) else ACTIONS.get(c, ACTIONS.get(n)))
         if i is None: no_id.append(n)
@@ -273,6 +278,8 @@ def write_spec(path, s, walk_t1, picked):
     if w.get('t1') in (None, TRIPO_STRIDE) or w.get('stride_from') == 'fal':
         raw['walk'] = {'clip': w.get('clip', 'walk'), 't0': w.get('t0', 0), 't1': round(walk_t1, 4), 'stride_from': 'fal'}   # marked: forget_fal_stride
         s.setdefault('walk', {})['t1'] = round(walk_t1, 4)
+    if 'head_up' not in raw:
+        raw['head_up'] = HEAD_UP; raw.setdefault('walk', {})['head_up_from'] = 'fal'; s['head_up'] = HEAD_UP
     rigged = {n: i for n, i in picked if n != 'idle'}; out = []
     for e in raw.get('actions') or []:
         n = e if isinstance(e, str) else e.get('name')
@@ -287,11 +294,13 @@ def write_spec(path, s, walk_t1, picked):
 
 
 def forget_fal_stride(path, s):
-    """back on Tripo after a fal rig: the walk's stride written by write_spec is Meshy's - Tripo's walk would be cut at it. Called on charpipe.rig's
-    Tripo side; a stride the user set (not marked) stays"""
+    """back on Tripo after a fal rig: the walk's stride and head_up written by write_spec are Meshy's - Tripo's walk would be cut at that stride
+    and look down. Called on charpipe.rig's Tripo side; what the user set (not marked) stays"""
     raw = json.loads(Path(path).read_text(encoding='utf-8')); w = raw.get('walk') or {}
-    if w.get('stride_from') != 'fal': return
-    w.pop('stride_from'); w['t1'] = TRIPO_STRIDE; raw['walk'] = w; s.setdefault('walk', {})['t1'] = TRIPO_STRIDE
+    if 'fal' not in (w.get('stride_from'), w.get('head_up_from')): return
+    if w.pop('stride_from', None): w['t1'] = TRIPO_STRIDE; s.setdefault('walk', {})['t1'] = TRIPO_STRIDE
+    if w.pop('head_up_from', None): raw.pop('head_up', None); s['head_up'] = TRIPO_HEAD_UP
+    raw['walk'] = w
     Path(path).write_text(json.dumps(raw, indent=2, ensure_ascii=False), encoding='utf-8')
 
 
@@ -471,10 +480,11 @@ if __name__ == '__main__':                                             # self-ch
     acts = {n: {'clip': n} for n in ['slash', 'wave', 'run', 'jump', 'shoot', 'dive', 'climb', 'fall', 'hurt', 'turn']}
     acts['cast'] = {'clip': 57}; acts['bow'] = {'clip': 'bow', 'meshy_id': 12}
     picked, no_id, over = plan_clips({'actions': acts})
-    assert picked[:3] == [('idle', 0), ('slash', 219), ('run', 14)] and len(picked) == 9, picked
+    assert picked[:3] == [('idle', 243), ('slash', 219), ('run', 14)] and len(picked) == 9, picked
     assert no_id == ['wave'] and over == ['turn', 'cast', 'bow'], (no_id, over)
     picked, no_id, over = plan_clips({'actions': {'cast': {'clip': 57}, 'bow': {'clip': 'bow', 'meshy_id': 12}}})
-    assert picked == [('idle', 0), ('cast', 57), ('bow', 12)] and not no_id and not over
+    assert picked == [('idle', 243), ('cast', 57), ('bow', 12)] and not no_id and not over
+    assert plan_clips({'idle': {'clip': 'idle', 't': 0, 'meshy_id': 244}, 'actions': {}})[0] == [('idle', 244)]   # the spec's own idle
     assert price({'kind': 'person', 'actions': {'wave': {'clip': 'wave'}, 'slash': {'clip': 'slash'}}}).endswith('= $1.64')   # wave has no clip: not paid for
     assert price({'kind': 'person', 'actions': acts}).endswith('9 clips × $0.12 = $2.48')                                      # nine at most
 
@@ -483,7 +493,8 @@ if __name__ == '__main__':                                             # self-ch
                                                                       'wave': {'clip': 'wave', 't0': 0, 't1': None}}}
     write_spec(sp, s, 1.02, [('slash', 219), ('cast', 57)])
     raw = json.loads(sp.read_text())
-    assert raw['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.02, 'stride_from': 'fal'}
+    assert raw['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.02, 'stride_from': 'fal', 'head_up_from': 'fal'} and raw['head_up'] == HEAD_UP
+    assert s['head_up'] == HEAD_UP
     assert raw['actions'][0] == {'name': 'slash', 't0': 0, 't1': None} and raw['actions'][1] == {'name': 'cast', 'clip': 'cast', 'meshy_id': 57, 't0': 0, 't1': None}
     assert raw['actions'][2] == 'wave'                                  # not rigged: left as the user wrote it
     assert s['walk']['t1'] == 1.02 and s['actions']['slash']['t0'] == 0 and s['actions']['slash']['t1'] is None and s['actions']['cast']['clip'] == 'cast'
@@ -494,14 +505,18 @@ if __name__ == '__main__':                                             # self-ch
     sp.write_text(json.dumps({'name': 'a', 'walk': {'clip': 'walk', 't0': 0, 't1': 1.033, 'stride_from': 'fal'}}))           # rigged on fal before: a re-rig rewrites it
     write_spec(sp, {'walk': {}}, 1.05, [])
     assert json.loads(sp.read_text())['walk']['t1'] == 1.05
-    s = {'walk': {'clip': 'walk', 't0': 0, 't1': 1.05}}                 # back to Tripo: its own stride, the fal one forgotten
+    raw = json.loads(sp.read_text()); assert raw['head_up'] == HEAD_UP and raw['walk']['head_up_from'] == 'fal'
+    s = {'walk': {'clip': 'walk', 't0': 0, 't1': 1.05}, 'head_up': HEAD_UP}   # back to Tripo: its own stride and head_up, the fal ones forgotten
     forget_fal_stride(sp, s)
     assert json.loads(sp.read_text())['walk'] == {'clip': 'walk', 't0': 0, 't1': 1.1835} and s['walk']['t1'] == 1.1835
-    sp.write_text(json.dumps({'name': 'a', 'walk': {'clip': 'walk', 't0': 0, 't1': 0.9}})); before = sp.read_text()
+    assert 'head_up' not in json.loads(sp.read_text()) and s['head_up'] == TRIPO_HEAD_UP
+    sp.write_text(json.dumps({'name': 'a', 'head_up': 12, 'walk': {'clip': 'walk', 't0': 0, 't1': 0.9}})); before = sp.read_text()
+    write_spec(sp, {'walk': {'t1': 0.9}, 'head_up': 12}, 1.02, []); assert json.loads(sp.read_text())['head_up'] == 12   # the user's head_up stays
+    sp.write_text(before)
     forget_fal_stride(sp, {'walk': {'t1': 0.9}}); assert sp.read_text() == before                                           # the user's own: kept
     sp.write_text(json.dumps({'name': 'a', 'actions': [{'name': 'attack', 'clip': 'slash'}]}))           # merged as "attack": render must look for that
     s = {'actions': {'attack': {'clip': 'slash', 't0': 0, 't1': None}}}
-    assert plan_clips(s)[0] == [('idle', 0), ('attack', 219)]
+    assert plan_clips(s)[0] == [('idle', 243), ('attack', 219)]
     write_spec(sp, s, 1.02, [('attack', 219)])
     assert json.loads(sp.read_text())['actions'][0]['clip'] == 'attack' and s['actions']['attack']['clip'] == 'attack'
 
@@ -558,7 +573,7 @@ if __name__ == '__main__':                                             # self-ch
             ok = rig(s, rd, NS(yes=True, again=False, spec=str(spf)))
         return ok, rd, spf, s, got
     ok, rd, spf, s, got = rig_case('r1')
-    assert ok and got['body']['animation_action_ids'] == [0, 219] and got['body']['model_url'].startswith('data:model/gltf-binary') and len(got['tag']) == 12
+    assert ok and got['body']['animation_action_ids'] == [IDLE, 219] and got['body']['model_url'].startswith('data:model/gltf-binary') and len(got['tag']) == 12
     validate(rd / 'rig/rig.glb', ['walk', 'idle', 'slash'])
     assert abs(facing(rd / 'rig/rig.glb')) < 1e-3
     assert json.loads(spf.read_text())['walk']['t1'] == 1.0 and s['walk']['t1'] == 1.0     # 2 s holding 2 strides
