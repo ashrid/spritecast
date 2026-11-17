@@ -24,6 +24,11 @@ Learned making a few hundred props for an isometric life-sim.
 - **Cost**: one drawing at `high` ≈ $0.07 (gpt-image-2.5, 2026). `SPRITECAST_QUALITY=medium` ≈ $0.06 (most of the cost is the two
   input images), `low` looks rough. Try a new idea on one prop before many.
 
+- **Which provider**: OpenAI (`OPENAI_API_KEY`), fal.ai (`FAL_KEY`) or OpenRouter (`OPENROUTER_API_KEY`) draw with the same
+  `gpt-image-2.5-sunburst` at the same price per token; `SPRITECAST_PROVIDER=openai|fal|openrouter` picks when more than one key is
+  set. fal gives no token count back, so its cost line is the estimate. OpenRouter takes a ratio, not pixels - each size here is one
+  of OpenAI's three, so it comes back the same; an image that does not is scaled to the asked size. A `SPRITECAST_MODEL` with a `/`
+  is that provider's own id (another model there: nothing here was tuned on it).
 - **Which image model**: `gpt-image-2.5-sunburst` is the default, and what every prompt and check here was tuned on.
   `SPRITECAST_MODEL=gpt-image-2.6-sunburst` (out 2026-11-04, the same price per token) draws with the newer one - nothing else
   changes, and a sheet costs about the same ($0.07-0.10). Tried on seven sheets of the rain girl (2026-11-13), not more:

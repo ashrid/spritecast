@@ -6,7 +6,7 @@
                                                      character's own: its figure_px / its height in metres - so they stand on one floor)
     python proppixel.py PROP.json --again 90         that view drawn anew
 
-It needs the prop's guide (isoprop.py render; with "views": [0, 90, 180, 270] in the spec, one per side) and OPENAI_API_KEY.
+It needs the prop's guide (isoprop.py render; with "views": [0, 90, 180, 270] in the spec, one per side) and an image key (OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY).
     guide (3D) -> pixelized -> the image model redraws it as pixel art on the same grid -> read back on the grid it drew
     -> brought to the guide's size -> <prop>/out-pixel/sprite[-<view>].png, pixel.json (size, anchor), preview.png
 

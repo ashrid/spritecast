@@ -34,7 +34,7 @@ own rigged model as "rig_glb").
                                                       facing, by face landmarks; --apply writes the factors as "head_fit", then `finish`
 
 Look at each paid step's input before running it (the turnaround before `3d`; the renders before `draw`). Keys in the environment:
-OPENAI_API_KEY and TRIPO_API_KEY (MESHY_API_KEY only with "modeler": "meshy"). Files go to <the spec's folder>/<name>/.
+an image key (OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY - imagegen.py) and TRIPO_API_KEY (MESHY_API_KEY only with "modeler": "meshy"). Files go to <the spec's folder>/<name>/.
 """
 import argparse, base64, json, os, shutil, sys, time, urllib.error, urllib.request, uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -46,6 +46,7 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE)); import charlib as CL   # noqa: E402
 import touchup as TU   # noqa: E402
+import imagegen as IG   # noqa: E402
 SPEC_PATH = None
 DIRS = ['south', 'south-east', 'east', 'north-east', 'north', 'north-west', 'west', 'south-west']
 PAIR = {'east': 'west', 'west': 'east', 'north-east': 'north-west', 'north-west': 'north-east', 'south-east': 'south-west', 'south-west': 'south-east'}
@@ -125,35 +126,13 @@ def gate(args, what):
     return True
 
 
-# --- OpenAI images --------------------------------------------------------------------------------------------------------------------
-class Refused(Exception):
-    """OpenAI's safety check turned a picture down three times running (it does now and then, at random, on legs and short skirts)"""
+# --- the image model (OpenAI, fal or OpenRouter: imagegen.py) -----------------------------------------------------------------------
+from imagegen import Refused  # noqa: E402  (callers catch it as CP.Refused)
 
 
 def gpt(prompt, imgs, out, size):
-    key = need('OPENAI_API_KEY'); model = os.environ.get('SPRITECAST_MODEL', 'gpt-image-2.5-sunburst')
-    fields = {'model': model, 'prompt': prompt, 'size': size, 'quality': os.environ.get('SPRITECAST_QUALITY', 'high'), 'background': 'opaque',
-              'output_format': 'png', 'n': '1'}
-    b = uuid.uuid4().hex; body = b''
-    for k, v in fields.items(): body += f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
-    for p in imgs:
-        body += (f'--{b}\r\nContent-Disposition: form-data; name="image[]"; filename="{Path(p).name}"\r\nContent-Type: image/png\r\n\r\n'.encode()
-                 + Path(p).read_bytes() + b'\r\n')
-    body += f'--{b}--\r\n'.encode()
-    req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body, method='POST',
-                                 headers={'Authorization': f'Bearer {key}', 'Content-Type': f'multipart/form-data; boundary={b}'})
-    for attempt in range(4):
-        try: j = json.load(urllib.request.urlopen(req, timeout=600)); break
-        except urllib.error.HTTPError as e:
-            msg = e.read()[:300].decode(errors='replace')
-            if e.code in (429, 500, 502, 503, 504) and attempt < 3: time.sleep(15 * (attempt + 1)); continue
-            if e.code == 400 and 'safety' in msg:                  # the same request often passes the next time
-                if attempt < 2: print(f'  {Path(out).name}: turned down by OpenAI\'s safety check - asking again', flush=True); time.sleep(5); continue
-                raise Refused(msg)
-            sys.exit(f'OpenAI HTTP {e.code} {msg}')
-    Path(out).write_bytes(base64.b64decode(j['data'][0]['b64_json']))
-    u = j.get('usage', {}); i = u.get('input_tokens_details', {})
-    return i.get('image_tokens', 0) * PRICE['image_in'] + i.get('text_tokens', 0) * PRICE['text_in'] + u.get('output_tokens', 0) * PRICE['image_out']
+    png, cost = IG.edit(prompt, imgs, size); Path(out).write_bytes(png)
+    return cost
 
 
 # --- turnaround -----------------------------------------------------------------------------------------------------------------------
@@ -566,7 +545,7 @@ def draw_walk(s, d, dr, again, only_groups=None, name='walk'):
              f"THE HEAD in every cell: {head_as_render(dr) if a.get('head') == 'as_render' and dr.startswith('south') else head_words(dr, who == 'animal')}.{held} {words}\n" + frame_rules(s, bool(hold), hand_of(hold)))
         (d / f'draw/{name}-{dr}-prompt-{g}.txt').write_text(P)
         try: cost += gpt(P, [rs] + imgs, out, '1536x1024')
-        except Refused: print(f'draw: {out.name} turned down by OpenAI\'s safety check three times - left as it was; run it again later, or say less about skin and length in the description')
+        except Refused: print(f'draw: {out.name} turned down by the safety check three times - left as it was; run it again later, or say less about skin and length in the description')
     return cost
 
 
@@ -588,7 +567,7 @@ def draw_idle(s, d, again):
              f"THE HEADS - {turns}.{held} {words}\n" + frame_rules(s, bool(hold), hand_of(hold)))
         (d / f'draw/idle-prompt-{g}.txt').write_text(P)
         try: cost += gpt(P, [rs] + imgs, out, '1536x1024')
-        except Refused: print(f'draw: {out.name} turned down by OpenAI\'s safety check three times - left as it was; run it again later, or say less about skin and length in the description')
+        except Refused: print(f'draw: {out.name} turned down by the safety check three times - left as it was; run it again later, or say less about skin and length in the description')
     return cost
 
 
@@ -646,7 +625,7 @@ def sit_draw(s, d, args):
              f"between the cells. The same person in all 4. THE HEADS - {turns}. {words}\n" + frame_rules(s))
         (d / f'draw/sit-prompt-{g}.txt').write_text(P)
         try: cost += gpt(P, [rs] + imgs, out, '1536x1024')
-        except Refused: print(f'sit: {out.name} turned down by OpenAI\'s safety check three times - left as it was; run it again later')
+        except Refused: print(f'sit: {out.name} turned down by the safety check three times - left as it was; run it again later')
     print(f'sit: drawn (${cost:.2f})'); sit_finish(s, d)
 
 
@@ -1059,7 +1038,7 @@ def draw_single(s, d, dr, k):
     (d / f'draw/walk-{dr}-single-{k}-prompt.txt').write_text(P)
     out = d / f'draw/walk-{dr}-single-{k}.png'
     try: return gpt(P, [rs] + imgs, out, '1536x1024')
-    except Refused: print(f'draw: {out.name} turned down by OpenAI\'s safety check three times - left as it was; run it again later, or say less about skin and length in the description'); return 0
+    except Refused: print(f'draw: {out.name} turned down by the safety check three times - left as it was; run it again later, or say less about skin and length in the description'); return 0
 
 
 def redraw_actions(s, d, args):

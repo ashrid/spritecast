@@ -20,7 +20,8 @@ Scripts: `${CLAUDE_SKILL_DIR}/scripts/isoprop.py` (steps `render`, `draw`, `fini
    in a line what is missing and run it again with `--fix` (a venv in ~/.cache/spritecast/, the packages, about 10 s). No Chrome or Edge: ask first, then `--fix --browser`
    (Playwright's Chromium, ~150 MB). For characters add `--characters` (the 224 MB cut-out
    model, once). If it says the Python cannot make a venv, pass on its one-line fix.
-2. Keys: `OPENAI_API_KEY` for `draw`, `TRIPO_API_KEY` for characters. They come from the plugin's settings (the user gives them in
+2. Keys: one image key for `draw` - `OPENAI_API_KEY`, or `FAL_KEY` (fal.ai) or `OPENROUTER_API_KEY` (OpenRouter), the same OpenAI
+   model through either; `SPRITECAST_PROVIDER` picks when more than one is set, else the first in that order - and `TRIPO_API_KEY` for characters. They come from the plugin's settings (the user gives them in
    `/plugin` → SpriteCast; a session-start hook hands them to the scripts), else from the environment. Missing: tell the user to put it
    in the plugin's settings and restart Claude Code. Never ask the user to paste a key into the chat, never write it into a file,
    never print it.
@@ -69,7 +70,7 @@ drawn to match).
 
 ## Walking characters
 For an animated character (an 8-direction walk and standing views), use `${CLAUDE_SKILL_DIR}/scripts/charpipe.py` and read
-[reference/character.md](reference/character.md) first. It needs one finished illustration of the character - facing front, standing straight, arms down, no pose (if theirs is posed, draw a neutral one from it first and show it) - and TRIPO_API_KEY besides OPENAI_API_KEY (or the user's own rigged GLB as `rig_glb`). Ask how tall the character will be on screen in their game and offer the sizes - 512 (HD), 256 (the default), 128, 64 - as
+[reference/character.md](reference/character.md) first. It needs one finished illustration of the character - facing front, standing straight, arms down, no pose (if theirs is posed, draw a neutral one from it first and show it) - and TRIPO_API_KEY besides the image key (or the user's own rigged GLB as `rig_glb`). Ask how tall the character will be on screen in their game and offer the sizes - 512 (HD), 256 (the default), 128, 64 - as
 `"frame_px"` (the frame's height; no answer: 256; another size later is `pack --px`, free). Ask the game's view and set it as `pitch`, not `camera` (30 = 2:1, the default; 35.26 true isometric; 50 3/4 top-down; 12 front - the 8 facings stay 45° apart). Tripo makes the model
 and the rig; with `"modeler": "meshy"` (and MESHY_API_KEY) Meshy makes the model (the author's way). Offer it when they have a Meshy account. Three steps, the user's OK before each:
 `turnaround` (~$0.09; show it: both sides the same, nothing over the arms) → `3d` (~75 Tripo credits: model, rig, walk, then the

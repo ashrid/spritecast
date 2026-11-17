@@ -76,10 +76,13 @@ def main():
     line(bool(mp), 'BiRefNet lite (224 MB)', str(mp) if mp else 'fetched by itself the first time a character is finished (or --fix --characters)')
     print('keys (the plugin\'s settings: /plugin -> SpriteCast, or the environment; never pasted into the chat):')
     for k, why in (('OPENAI_API_KEY', 'drawing - props and characters (about $0.07 a prop, ~$2.2 a walking character; ~$1.5 with "mirror": true)'),
+                   ('FAL_KEY', 'drawing instead of OpenAI: the same model, billed by fal.ai'),
+                   ('OPENROUTER_API_KEY', 'drawing instead of OpenAI: the same model, billed by OpenRouter'),
                    ('TRIPO_API_KEY', 'characters: the 3D model and its rig and walk; props: an optional detailed model'),
                    ('MESHY_API_KEY', 'optional: characters\' 3D model by Meshy instead ("modeler": "meshy")')):
         line(bool(os.environ.get(k)), k, why)
-    print('ready: guides and the free trial' + (' - and drawing' if os.environ.get('OPENAI_API_KEY') else ' (drawing needs OPENAI_API_KEY)') if ok
+    print('ready: guides and the free trial' + (' - and drawing' if any(os.environ.get(k) for k in ('OPENAI_API_KEY', 'FAL_KEY', 'OPENROUTER_API_KEY'))
+                                               else ' (drawing needs OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY)') if ok
           else 'not ready: run with --fix')
     print(f'PYTHON={py}')
     sys.exit(0 if ok else 1)

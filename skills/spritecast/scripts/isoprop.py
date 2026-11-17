@@ -12,11 +12,11 @@ image model redrawing it in your art style, then cut out, fitted back onto the g
 
 Output goes to <the spec's folder>/<spec name>/ (or --out DIR); a spec with several `views` gets a folder per view (turn-<deg>/).
 `draw` never overwrites an existing drawn.png (pass --again).
-Environment: OPENAI_API_KEY (draw only); TRIPO_API_KEY (model only); SPRITECAST_MODEL (default gpt-image-2.5-sunburst), SPRITECAST_QUALITY (low|medium|high, default high).
+Environment: OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY (draw only; SPRITECAST_PROVIDER picks - imagegen.py); TRIPO_API_KEY (model only); SPRITECAST_MODEL (default gpt-image-2.5-sunburst), SPRITECAST_QUALITY (low|medium|high, default high).
 """
-import argparse, base64, json, math, os, sys, time, urllib.error, urllib.request, uuid
+import argparse, base64, json, math, os, sys, time, urllib.error, urllib.request
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent)); import browser as BROWSER  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent)); import browser as BROWSER, imagegen as IG  # noqa: E402
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
@@ -297,38 +297,22 @@ def draw(spec, d, args):
     est = sum((2600 if vd == vs[0][1] else 3900) * PRICE['image_in'] + 450 * PRICE['text_in'] + out_tok * PRICE['image_out'] for _, vd in todo)
     print(f'draw: {len(todo)} view(s), {model}, quality {quality}, about ${est:.2f}')
     if not args.yes: return print('draw: not spent — run again with --yes')
-    key = os.environ.get('OPENAI_API_KEY')
-    if not key: sys.exit('draw: set OPENAI_API_KEY')
+    IG.provider()                                                              # no key: stop before anything is spent
     for t, vd in todo:                                                         # the first view first: the others follow its drawing
         ref = vs[0][1] / 'drawn.png' if vd != vs[0][1] else None
         if ref is not None and not ref.exists(): sys.exit('draw: the first view has no drawing yet')
-        draw_one(spec, vd, args, model, quality, key, ref)
+        draw_one(spec, vd, args, quality, ref)
 
 
-def draw_one(spec, d, args, model, quality, key, ref):
+def draw_one(spec, d, args, quality, ref):
     out = d / 'drawn.png'
     imgs = [d / 'input.png', style_of(spec, args.spec)] + ([ref] if ref else [])
     size = '%dx%d' % Image.open(imgs[0]).size
     yaw = json.loads((d / 'render.json').read_text()).get('camera', {}).get('yaw', 45)
-    fields = {'model': model, 'prompt': prompt(spec, first=bool(ref), yaw=yaw), 'size': size, 'quality': quality, 'background': 'opaque', 'output_format': 'png', 'n': '1'}
-    b = uuid.uuid4().hex; body = b''
-    for k, v in fields.items(): body += f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
-    for p in imgs:
-        body += (f'--{b}\r\nContent-Disposition: form-data; name="image[]"; filename="{p.name}"\r\nContent-Type: image/png\r\n\r\n'.encode()
-                 + p.read_bytes() + b'\r\n')
-    body += f'--{b}--\r\n'.encode()
-    req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=body, method='POST',
-                                 headers={'Authorization': f'Bearer {key}', 'Content-Type': f'multipart/form-data; boundary={b}'})
     t = time.time()
-    for attempt in range(4):
-        try: j = json.load(urllib.request.urlopen(req, timeout=600)); break
-        except urllib.error.HTTPError as e:
-            msg = e.read()[:300].decode(errors='replace')
-            if e.code in (429, 500, 502, 503, 504) and attempt < 3: time.sleep(15 * (attempt + 1)); continue
-            sys.exit(f'draw: HTTP {e.code} {msg}')
-    out.write_bytes(base64.b64decode(j['data'][0]['b64_json']))
-    u = j.get('usage', {}); i = u.get('input_tokens_details', {})
-    cost = i.get('image_tokens', 0) * PRICE['image_in'] + i.get('text_tokens', 0) * PRICE['text_in'] + u.get('output_tokens', 0) * PRICE['image_out']
+    try: png, cost = IG.edit(prompt(spec, first=bool(ref), yaw=yaw), imgs, size, quality)
+    except IG.Refused as e: sys.exit(f'draw: turned down by the safety check three times - {e}')
+    out.write_bytes(png)
     print(f'draw: {out}  ({time.time() - t:.0f} s, ${cost:.3f})')
 
 

@@ -21,7 +21,7 @@
         --redraw            PAID with --yes: the sheets with a frame the review marks, drawn again (twice at most), the better kept
         --partial           with --yes left off: put together what is drawn already (an animation's first frames), to look at
 
-Needs the character's `render/` (charpipe.py render - free with a rig) and OPENAI_API_KEY for the drawing (~$0.075 a sheet).
+Needs the character's `render/` (charpipe.py render - free with a rig) and an image key (OPENAI_API_KEY, FAL_KEY or OPENROUTER_API_KEY) for the drawing (~$0.075 a sheet).
 What it does:  render -> pixelized guide (4 frames a sheet) -> GPT redraws it as pixel art -> read back on the grid GPT drew
                   (the head on its own column lines and its own palette: the face comes back as GPT drew it)
                -> every frame the render's size, laid on its render

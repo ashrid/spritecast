@@ -2,7 +2,7 @@
 
 For a game drawn in pixels - a belt-scroller, a fighter, an arcade platformer - the character as real pixel art, about 96 px tall:
 one colour a pixel, a palette, a dark outline, no blur. It needs a character that already has its 3D renders (`charpipe.py render`;
-free with a rig) and `OPENAI_API_KEY`. It does not use the illustrated frames: the order is the other way round.
+free with a rig) and an image key (`OPENAI_API_KEY`, `FAL_KEY` or `OPENROUTER_API_KEY`). It does not use the illustrated frames: the order is the other way round.
 
     renders (3D) → pixelized guide → the image model redraws it as pixel art → read back on the grid it drew → sprites
 
@@ -230,7 +230,7 @@ drawings are read again with another palette - and both work on `pixelart.py` an
 ## Props as pixel art: `proppixel.py`
 
 The same way round as a character, for a thing: its 3D guide pixelized, redrawn as pixel art on the same grid, read back on the grid
-the image model drew, brought to the guide's size. It needs the prop's guide (`isoprop.py render`) and `OPENAI_API_KEY`.
+the image model drew, brought to the guide's size. It needs the prop's guide (`isoprop.py render`) and an image key (`OPENAI_API_KEY`, `FAL_KEY` or `OPENROUTER_API_KEY`).
 
 ```
 PYTHON proppixel.py PROP.json                # the plan and its cost - spends nothing

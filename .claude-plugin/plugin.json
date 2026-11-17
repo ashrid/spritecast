@@ -23,8 +23,26 @@
     "openai_api_key": {
       "type": "string",
       "title": "OpenAI API key",
-      "description": "Drawing props and characters (about $0.07 a prop, $2.2 a walking character). From platform.openai.com.",
+      "description": "Drawing props and characters (about $0.07 a prop, $2.2 a walking character). From platform.openai.com. Or give a fal or OpenRouter key below instead.",
       "sensitive": true
+    },
+    "fal_key": {
+      "type": "string",
+      "title": "fal.ai API key (instead of OpenAI)",
+      "description": "The same OpenAI image model, billed by fal.ai. From fal.ai/dashboard/keys.",
+      "sensitive": true
+    },
+    "openrouter_api_key": {
+      "type": "string",
+      "title": "OpenRouter API key (instead of OpenAI)",
+      "description": "The same OpenAI image model, billed by OpenRouter. From openrouter.ai/settings/keys.",
+      "sensitive": true
+    },
+    "image_provider": {
+      "type": "string",
+      "title": "Image provider (optional)",
+      "description": "openai, fal or openrouter. Empty: the first of them whose key is set.",
+      "sensitive": false
     },
     "tripo_api_key": {
       "type": "string",
